@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>8-Bit CPU Simulator — Extended SAP-1</title>
+  <link rel="stylesheet" href="src/style.css" />
+  <link rel="stylesheet" href="src/tutorial-style.css" />
+  <link rel="stylesheet" href="src/breadboard-style.css" />
+  <link rel="stylesheet" href="src/explainer-style.css" />
+</head>
+<body>
+
+<!-- MOBILE NOTICE — shown only on small screens -->
+<div id="mobile-notice" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0e1a;color:#cde;font-family:'Segoe UI',sans-serif;padding:40px 24px;text-align:center;overflow-y:auto;">
+  <div style="max-width:400px;margin:0 auto;">
+    <div style="font-size:48px;margin-bottom:20px;">🖥️</div>
+    <h1 style="color:#00ff88;font-size:22px;margin-bottom:16px;">Desktop Only</h1>
+    <p style="font-size:15px;line-height:1.7;color:#9ab;margin-bottom:20px;">
+      This 8-bit CPU simulator requires a desktop or laptop computer with a keyboard and mouse.
+    </p>
+    <p style="font-size:13px;line-height:1.6;color:#668;">
+      The build mode needs precise mouse clicks to wire chips. The CPU diagram needs screen space to display all components. Touch screens and small displays are not supported.
+    </p>
+    <div style="margin-top:30px;padding:16px;background:#111828;border-radius:8px;border:1px solid #1a2a3a;">
+      <p style="color:#ffaa00;font-size:13px;margin:0;">Open this page on a desktop browser:</p>
+      <p style="color:#4a8;font-size:11px;margin:8px 0 0;word-break:break-all;" id="mobile-url"></p>
+    </div>
+    <button onclick="document.getElementById('mobile-notice').style.display='none'" style="margin-top:24px;background:#1a2a3a;color:#8ac;border:1px solid #2a3a4a;padding:10px 24px;border-radius:6px;font-size:13px;cursor:pointer;">Continue anyway</button>
+  </div>
+</div>
+<script>
+(function() {
+  var w = window.innerWidth || document.documentElement.clientWidth;
+  if (w < 900) {
+    var notice = document.getElementById('mobile-notice');
+    if (notice) {
+      notice.style.display = 'block';
+      var urlEl = document.getElementById('mobile-url');
+      if (urlEl) urlEl.textContent = window.location.href;
+    }
+  }
+})();
+</script>
+
+<!-- ═══════════════════════════════════════
+     HEADER
+═══════════════════════════════════════ -->
+<header class="app-header">
+  <div class="header-left">
+    <div class="header-logo">
+      <span class="logo-title">8-BIT CPU</span>
+      <span class="logo-sep">/</span>
+      <span class="logo-sub">Extended SAP-1 · 256 Bytes RAM · Stack · Interrupts</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="header-stat">
+      <span class="stat-label">Cycles</span>
+      <span class="stat-value" id="clock-cycles">0</span>
+    </div>
+    <div class="header-stat">
+      <span class="stat-label">Instructions</span>
+      <span class="stat-value" id="instr-count">0</span>
+    </div>
+    <div class="header-stat">
+      <span class="stat-label">T-State</span>
+      <span class="stat-value" id="t-state">T0</span>
+    </div>
+    <div class="header-stat">
+      <span class="stat-label">SP</span>
+      <span class="stat-value mono" id="header-sp">FF</span>
+    </div>
+    <div class="header-stat">
+      <span class="stat-label">Status</span>
+      <span class="stat-value running" id="halted-indicator">READY</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════
+     CONTROL BAR
+═══════════════════════════════════════ -->
+<div class="control-bar">
+  <div class="control-group">
+    <button id="btn-step"       class="btn btn-primary"   title="One micro-step (S)">Step T+1</button>
+    <button id="btn-step-instr" class="btn btn-secondary" title="One full instruction (I)">Step Instr</button>
+    <button id="btn-run"        class="btn btn-success"   title="Run continuously (Space)">Run</button>
+    <button id="btn-pause"      class="btn btn-warning hidden" title="Pause (Space)">Pause</button>
+    <button id="btn-reset"      class="btn btn-danger"    title="Reset CPU, keep RAM (R)">Reset CPU</button>
+    <button id="btn-interrupt"  class="btn btn-interrupt" title="Fire hardware interrupt">INT</button>
+  </div>
+
+  <div class="control-group speed-group">
+    <label class="speed-label-txt">Speed:</label>
+    <input type="range" id="speed-slider" min="30" max="1000" value="200" step="10" />
+    <span id="speed-label" class="speed-value">200ms</span>
+  </div>
+
+  <div class="control-group input-group">
+    <label class="speed-label-txt">Input Reg:</label>
+    <input type="number" id="input-register" min="0" max="255" value="0"
+           class="input-reg-field" title="Value read by IN instruction" />
+  </div>
+
+  <div class="control-group kbd-hints">
+    <span class="kbd-hint"><kbd>S</kbd> step</span>
+    <span class="kbd-hint"><kbd>I</kbd> step instr</span>
+    <span class="kbd-hint"><kbd>Space</kbd> run/pause</span>
+    <span class="kbd-hint"><kbd>R</kbd> reset</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     MAIN LAYOUT
+═══════════════════════════════════════ -->
+<main class="app-main">
+
+  <!-- LEFT: CPU Diagram + Clock + Control Signals -->
+  <section class="panel panel-diagram">
+    <div class="panel-header">CPU Diagram
+      <span class="panel-hint" id="bus-flow-label"></span>
+    </div>
+
+    <div id="cpu-diagram" class="cpu-diagram-container"></div>
+
+    <!-- Animated data flow overlay canvas -->
+    <canvas id="flow-canvas" class="flow-canvas"></canvas>
+
+    <div class="panel-sub-header">Clock Waveform</div>
+    <canvas id="waveform-canvas" width="460" height="52" class="waveform-canvas"></canvas>
+
+    <div class="panel-sub-header">
+      Control Signals
+      <span class="panel-hint">(active = highlighted red)</span>
+    </div>
+    <div id="control-signals" class="control-signals-grid"></div>
+  </section>
+
+  <!-- CENTER: Registers + Flags + Buses + Output -->
+  <section class="panel panel-center">
+
+    <div class="panel-header">Registers</div>
+    <div class="registers-grid" id="registers-grid">
+      <!-- Built by ui.js -->
+    </div>
+
+    <div class="panel-sub-header">Flags</div>
+    <div class="flags-display">
+      <div class="flag-item">
+        <span class="flag-name">Carry (CF)</span>
+        <span class="flag-bit" id="flag-CF">0</span>
+        <span class="flag-desc">Overflow/borrow on arith</span>
+      </div>
+      <div class="flag-item">
+        <span class="flag-name">Zero (ZF)</span>
+        <span class="flag-bit" id="flag-ZF">0</span>
+        <span class="flag-desc">Result was zero</span>
+      </div>
+    </div>
+
+    <div class="panel-sub-header">Buses</div>
+    <div class="buses-display">
+      <div class="bus-card" id="bus-address">
+        <div class="bus-label">Address Bus <span class="bus-width">(8-bit)</span></div>
+        <div class="bus-bits">00000000</div>
+        <div class="bus-meta">0x00 = 0</div>
+      </div>
+      <div class="bus-card" id="bus-data">
+        <div class="bus-label">Data Bus <span class="bus-width">(8-bit)</span></div>
+        <div class="bus-bits">00000000</div>
+        <div class="bus-meta">0x00 | Driver: none</div>
+      </div>
+    </div>
+
+    <div class="panel-sub-header">
+      Output Display
+      <button id="btn-clear-output" class="btn btn-tiny">Clear</button>
+    </div>
+    <div id="output-history" class="output-history">
+      <div class="output-empty">No output yet. Run a program with OUT instructions.</div>
+    </div>
+
+  </section>
+
+  <!-- RIGHT: Tabbed panel -->
+  <section class="panel panel-right">
+    <div class="tabs" id="main-tabs">
+      <button class="tab-btn active" data-tab="editor">Assembler</button>
+      <button class="tab-btn" data-tab="memory">Memory</button>
+      <button class="tab-btn" data-tab="challenges">Challenges</button>
+      <button class="tab-btn" data-tab="microcode">Microcode</button>
+      <button class="tab-btn" data-tab="history">History</button>
+      <button class="tab-btn" data-tab="pipeline">Pipeline</button>
+      <button class="tab-btn" data-tab="reference">Reference</button>
+      <button class="tab-btn" data-tab="tests">Tests</button>
+    </div>
+
+    <!-- ─── ASSEMBLER TAB ─── -->
+    <div class="tab-pane active" id="tab-editor">
+      <div class="editor-toolbar">
+        <select id="program-select" class="program-select">
+          <option value="">-- Choose Example --</option>
+        </select>
+        <button id="btn-assemble"     class="btn btn-primary">Assemble</button>
+        <button id="btn-assemble-run" class="btn btn-success">Assemble + Run</button>
+      </div>
+
+      <div id="program-description" class="program-description">
+        Select an example or write your own assembly code below.
+      </div>
+
+      <textarea id="editor" class="code-editor" spellcheck="false"
+        placeholder="; Write assembly here. 2-byte format: OPCODE  OPERAND
+; Addresses are 8-bit (0x00–0xFF). Immediates are full 8-bit.
+; Labels, .org, .byte directives all supported.
+
+LDI 42      ; A = 42
+OUT         ; output A
+HLT"></textarea>
+
+      <div id="assemble-status" class="assemble-status"></div>
+
+      <div id="assembly-listing" class="assembly-listing" style="max-height:120px;overflow-y:auto;flex-shrink:0"></div>
+
+      <div class="quick-ref">
+        <div class="quick-ref-title">Instruction Set (Extended SAP-1)</div>
+        <table class="quick-ref-table">
+          <thead><tr><th>Mnemonic</th><th>Opcode</th><th>Bytes</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>NOP</td><td>0x00</td><td>1</td><td>No operation</td></tr>
+            <tr><td>LDA addr</td><td>0x01</td><td>2</td><td>A ← RAM[addr]</td></tr>
+            <tr><td>ADD addr</td><td>0x02</td><td>2</td><td>A ← A + RAM[addr]</td></tr>
+            <tr><td>SUB addr</td><td>0x03</td><td>2</td><td>A ← A − RAM[addr]</td></tr>
+            <tr><td>STA addr</td><td>0x04</td><td>2</td><td>RAM[addr] ← A</td></tr>
+            <tr><td>LDI imm</td><td>0x05</td><td>2</td><td>A ← imm (0–255)</td></tr>
+            <tr><td>JMP addr</td><td>0x06</td><td>2</td><td>PC ← addr</td></tr>
+            <tr><td>JC  addr</td><td>0x07</td><td>2</td><td>If CF: PC ← addr</td></tr>
+            <tr><td>JZ  addr</td><td>0x08</td><td>2</td><td>If ZF: PC ← addr</td></tr>
+            <tr><td>AND addr</td><td>0x09</td><td>2</td><td>A ← A & RAM[addr]</td></tr>
+            <tr><td>OR  addr</td><td>0x0A</td><td>2</td><td>A ← A | RAM[addr]</td></tr>
+            <tr><td>XOR addr</td><td>0x0B</td><td>2</td><td>A ← A ^ RAM[addr]</td></tr>
+            <tr><td>SHL</td><td>0x0C</td><td>1</td><td>A ← A &lt;&lt; 1, CF=msb</td></tr>
+            <tr><td>SHR</td><td>0x0D</td><td>1</td><td>A ← A &gt;&gt; 1, CF=lsb</td></tr>
+            <tr><td>OUT</td><td>0x0E</td><td>1</td><td>OUTPUT ← A</td></tr>
+            <tr><td>HLT</td><td>0x0F</td><td>1</td><td>Halt clock</td></tr>
+            <tr><td>PUSH</td><td>0x10</td><td>1</td><td>RAM[SP]←A; SP--</td></tr>
+            <tr><td>POP</td><td>0x11</td><td>1</td><td>SP++; A←RAM[SP]</td></tr>
+            <tr><td>CALL addr</td><td>0x12</td><td>2</td><td>Push PC; PC←addr</td></tr>
+            <tr><td>RET</td><td>0x13</td><td>1</td><td>Pop PC</td></tr>
+            <tr><td>IN</td><td>0x14</td><td>1</td><td>A ← INPUT reg</td></tr>
+            <tr><td>RTI</td><td>0x15</td><td>1</td><td>Return from interrupt</td></tr>
+            <tr><td>JNZ addr</td><td>0x16</td><td>2</td><td>If !ZF: PC←addr</td></tr>
+            <tr><td>JNC addr</td><td>0x17</td><td>2</td><td>If !CF: PC←addr</td></tr>
+            <tr><td>LDB imm</td><td>0x18</td><td>2</td><td>B ← imm</td></tr>
+            <tr><td>CMP addr</td><td>0x19</td><td>2</td><td>Flags only: A−RAM[addr]</td></tr>
+          </tbody>
+        </table>
+        <div class="quick-ref-note">
+          Addresses 0x00–0xFF (256 bytes). Stack grows down from 0xFF.
+          Interrupt vector: 0xF0. Labels: name: instr. Comments: ; or //
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── MEMORY TAB ─── -->
+    <div class="tab-pane" id="tab-memory">
+      <div class="memory-toolbar">
+        <span class="memory-info">256 bytes (0x00–0xFF). Click address to toggle breakpoint.</span>
+        <div class="mem-legend-row">
+          <span class="mem-legend mem-current-legend">PC</span>
+          <span class="mem-legend mem-mar-legend">MAR</span>
+          <span class="mem-legend mem-bp-legend">Breakpoint</span>
+          <span class="mem-legend mem-sp-legend">SP</span>
+        </div>
+      </div>
+      <div id="memory-grid" class="memory-grid"></div>
+    </div>
+
+    <!-- ─── CHALLENGES TAB ─── -->
+    <div class="tab-pane" id="tab-challenges">
+      <div class="challenges-header">
+        <div class="challenge-progress" id="challenge-progress">0 / 0 solved</div>
+      </div>
+      <div id="challenges-list" class="challenges-list"></div>
+      <div id="challenge-detail" class="challenge-detail hidden">
+        <div class="challenge-detail-header">
+          <span id="challenge-title" class="challenge-title"></span>
+          <button id="btn-close-challenge" class="btn btn-tiny">Close</button>
+        </div>
+        <div id="challenge-desc" class="challenge-desc"></div>
+        <div id="challenge-expected" class="challenge-expected"></div>
+        <div id="challenge-result" class="challenge-result hidden"></div>
+        <button id="btn-check-challenge" class="btn btn-primary" style="margin-top:8px">Check Solution</button>
+        <button id="btn-hint-challenge"  class="btn btn-secondary" style="margin-top:8px">Show Hint</button>
+        <div id="challenge-hint" class="challenge-hint hidden"></div>
+      </div>
+    </div>
+
+    <!-- ─── MICROCODE EDITOR TAB ─── -->
+    <div class="tab-pane" id="tab-microcode">
+      <div class="microcode-header">
+        <span class="mc-title">Microcode ROM Editor</span>
+        <span class="mc-subtitle">Click a cell to toggle a control signal. Changes take effect immediately.</span>
+      </div>
+      <div class="mc-toolbar">
+        <select id="mc-instr-select" class="mc-instr-select"></select>
+        <button id="btn-mc-reset" class="btn btn-tiny btn-danger">Reset to Default</button>
+        <button id="btn-mc-export" class="btn btn-tiny">Export JSON</button>
+      </div>
+      <div id="microcode-editor" class="microcode-editor-grid"></div>
+      <div class="mc-note">
+        Each row = one T-state. Each column = one control signal. The fetch cycle (T0, T1) is shared by all instructions.
+        Editing here directly rewrites the CPU's control ROM — just like programming a 28C256 EEPROM on the real hardware!
+      </div>
+    </div>
+
+    <!-- ─── HISTORY TAB ─── -->
+    <div class="tab-pane" id="tab-history">
+      <div class="history-toolbar">
+        <span class="history-title">Execution Timeline</span>
+        <button id="btn-clear-history" class="btn btn-tiny btn-danger">Clear</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
+      <div id="history-detail" class="history-detail hidden"></div>
+    </div>
+
+    <!-- ─── PIPELINE TAB ─── -->
+    <div class="tab-pane" id="tab-pipeline">
+      <div class="pipeline-header">
+        <span class="pipeline-title">Pipeline Visualization</span>
+        <span class="pipeline-subtitle">How a pipelined CPU overlaps Fetch / Decode / Execute</span>
+      </div>
+      <canvas id="pipeline-canvas" class="pipeline-canvas" width="600" height="280"></canvas>
+      <div class="pipeline-explanation">
+        <h4>Why Pipelining?</h4>
+        <p>Our SAP-1 is a <strong>non-pipelined</strong> (sequential) design: each instruction must fully complete before the next one starts. A pipelined CPU overlaps stages, so while Instruction N is executing, Instruction N+1 is being decoded and N+2 is being fetched.</p>
+
+        <h4>The 3-Stage Classic Pipeline</h4>
+        <div class="pipeline-stages">
+          <div class="pipe-stage pipe-fetch">
+            <div class="pipe-stage-label">IF — Instruction Fetch</div>
+            <div class="pipe-stage-desc">PC → MAR, RAM → IR, PC++. Reads the next instruction from memory.</div>
+          </div>
+          <div class="pipe-stage pipe-decode">
+            <div class="pipe-stage-label">ID — Instruction Decode</div>
+            <div class="pipe-stage-desc">Opcode decoded, register file read, control signals prepared.</div>
+          </div>
+          <div class="pipe-stage pipe-execute">
+            <div class="pipe-stage-label">EX — Execute</div>
+            <div class="pipe-stage-desc">ALU performs operation, memory accessed (for LDA/STA), result written back.</div>
+          </div>
+        </div>
+
+        <h4>Hazards</h4>
+        <ul>
+          <li><strong>Data Hazard:</strong> Instruction N+1 needs a result that N hasn't finished computing yet. Solved with forwarding or stall bubbles.</li>
+          <li><strong>Control Hazard:</strong> A branch (JMP/JC) changes PC — instructions already in the pipeline must be flushed. Branch prediction helps here.</li>
+          <li><strong>Structural Hazard:</strong> Two stages need the same hardware simultaneously (e.g., both IF and EX want RAM). Solved with separate instruction/data caches.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ─── REFERENCE TAB ─── -->
+    <div class="tab-pane" id="tab-reference">
+      <div class="reference-content">
+        <h3>How This CPU Works</h3>
+        <p>This is an extended SAP-1 (Simple As Possible) design inspired by Ben Eater's 8-bit breadboard computer, expanded with a 256-byte RAM, stack, more ALU operations, hardware interrupts, and a full 26-instruction set.</p>
+
+        <h4>The Fetch-Decode-Execute Cycle</h4>
+        <p>Every instruction runs through the same two fetch micro-steps first:</p>
+        <ol>
+          <li><strong>T0 — Fetch (Addr):</strong> CO+MI — PC drives address bus, MAR latches it</li>
+          <li><strong>T1 — Fetch (Data):</strong> RO+II+CE — RAM[MAR] → IR, PC++</li>
+          <li><strong>T2+ — Execute:</strong> Instruction-specific micro-steps</li>
+        </ol>
+        <p>2-byte instructions need an extra operand fetch at T2: CO+MI, then RO+?I+CE to read the operand byte.</p>
+
+        <h4>The Stack</h4>
+        <p>The stack grows <strong>downward</strong> from address 0xFF. SP starts at 0xFF. PUSH decrements SP after writing; POP increments SP before reading. CALL automatically pushes the return address; RET pops it.</p>
+        <pre class="ref-code">PUSH:  RAM[SP] ← A; SP--
+POP:   SP++;  A ← RAM[SP]
+CALL:  push PC (return addr); PC ← target
+RET:   pop PC</pre>
+
+        <h4>Interrupts</h4>
+        <p>Press the INT button to trigger a hardware interrupt. The CPU saves PC and flags to the stack, then jumps to the interrupt vector at 0xF0. Write your ISR (Interrupt Service Routine) starting at 0xF0 and end it with RTI.</p>
+
+        <h4>Control Signals</h4>
+        <table class="ref-table">
+          <thead><tr><th>Signal</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>HLT</td><td>Halt the clock</td></tr>
+            <tr><td>MI</td><td>MAR In — load address from bus</td></tr>
+            <tr><td>RI</td><td>RAM In — write bus to RAM[MAR]</td></tr>
+            <tr><td>RO</td><td>RAM Out — RAM[MAR] to data bus</td></tr>
+            <tr><td>II</td><td>IR In — load data bus into IR</td></tr>
+            <tr><td>AI</td><td>A In — load data bus into A</td></tr>
+            <tr><td>AO</td><td>A Out — A to data bus</td></tr>
+            <tr><td>BI</td><td>B In — load data bus into B</td></tr>
+            <tr><td>BO</td><td>B Out — B to data bus</td></tr>
+            <tr><td>EO</td><td>ALU Out — ALU result to data bus</td></tr>
+            <tr><td>SU</td><td>Subtract mode (ALU)</td></tr>
+            <tr><td>ANDI</td><td>AND mode (ALU)</td></tr>
+            <tr><td>ORI</td><td>OR mode (ALU)</td></tr>
+            <tr><td>XORI</td><td>XOR mode (ALU)</td></tr>
+            <tr><td>SHLI</td><td>Shift Left mode (ALU)</td></tr>
+            <tr><td>SHRI</td><td>Shift Right mode (ALU)</td></tr>
+            <tr><td>OI</td><td>Output In — load data bus into OUT</td></tr>
+            <tr><td>CE</td><td>Counter Enable — PC++</td></tr>
+            <tr><td>CO</td><td>Counter Out — PC to bus</td></tr>
+            <tr><td>J</td><td>Jump — load PC from bus</td></tr>
+            <tr><td>FI</td><td>Flags In — update CF/ZF</td></tr>
+            <tr><td>SPO</td><td>SP Out — SP to address bus</td></tr>
+            <tr><td>SPI</td><td>SP In — load bus to SP</td></tr>
+            <tr><td>SPD</td><td>SP Decrement — SP--</td></tr>
+            <tr><td>SPUP</td><td>SP Increment — SP++</td></tr>
+            <tr><td>INO</td><td>Input Out — INPUT register to data bus</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Architecture Key Facts</h4>
+        <ul>
+          <li>8-bit data bus — all data in 8-bit chunks</li>
+          <li>8-bit address bus — 256 addressable RAM locations</li>
+          <li>Stack: 8-bit SP, grows down from 0xFF</li>
+          <li>Interrupt vector: 0xF0 (hardwired)</li>
+          <li>Instruction format: opcode byte (1-byte instrs) or opcode + operand (2-byte)</li>
+          <li>ALU: ADD, SUB, AND, OR, XOR, SHL, SHR — all 8-bit</li>
+        </ul>
+
+        <h4>CU Signal Reference Sheet</h4>
+
+        <h5 style="color:#ffaa00;margin:12px 0 4px">OUTPUT signals — put data onto a bus</h5>
+        <table class="ref-table">
+          <thead><tr><th>Signal</th><th>Name</th><th>Build Pin</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>CO</td><td>Counter Out</td><td>PC → ENABLE</td><td>PC puts address onto address bus</td></tr>
+            <tr><td>RO</td><td>RAM Out</td><td>RAM → RD</td><td>RAM puts data onto data bus (row MAR points at)</td></tr>
+            <tr><td>AO</td><td>A Out</td><td>REG A → ENABLE</td><td>Register A puts value onto data bus</td></tr>
+            <tr><td>BO</td><td>B Out</td><td>REG B → ENABLE</td><td>Register B puts value onto data bus</td></tr>
+            <tr><td>EO</td><td>ALU Out</td><td>ALU → ENABLE</td><td>ALU puts result onto data bus</td></tr>
+            <tr><td>IO</td><td>IR Operand Out</td><td>IR → ENABLE</td><td>IR puts operand onto address bus</td></tr>
+            <tr><td>SPO</td><td>SP Out</td><td>SP → ENABLE</td><td>Stack pointer puts address onto address bus</td></tr>
+            <tr><td>INO</td><td>Input Out</td><td>INPUT → ENABLE</td><td>Input register puts value onto data bus</td></tr>
+          </tbody>
+        </table>
+
+        <h5 style="color:#4488ff;margin:12px 0 4px">INPUT signals — capture data from a bus</h5>
+        <table class="ref-table">
+          <thead><tr><th>Signal</th><th>Name</th><th>Build Pin</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>MI</td><td>MAR In</td><td>MAR → LOAD</td><td>MAR captures address from address bus</td></tr>
+            <tr><td>RI</td><td>RAM In</td><td>RAM → WR</td><td>RAM stores data bus value into addressed row</td></tr>
+            <tr><td>AI</td><td>A In</td><td>REG A → LOAD</td><td>Register A captures from data bus</td></tr>
+            <tr><td>BI</td><td>B In</td><td>REG B → LOAD</td><td>Register B captures from data bus</td></tr>
+            <tr><td>II</td><td>IR In</td><td>IR → LOAD</td><td>Instruction Register captures from data bus</td></tr>
+            <tr><td>OI</td><td>Output In</td><td>OUT → LOAD</td><td>Output display captures from data bus</td></tr>
+            <tr><td>SPI</td><td>SP In</td><td>SP → LOAD</td><td>Stack pointer captures from bus</td></tr>
+            <tr><td>FI</td><td>Flags In</td><td>FLAGS → LOAD</td><td>Flags register captures CF and ZF from ALU</td></tr>
+            <tr><td>J</td><td>Jump</td><td>PC → LOAD</td><td>PC captures new address from address bus (jump)</td></tr>
+          </tbody>
+        </table>
+
+        <h5 style="color:#ff4444;margin:12px 0 4px">CONTROL signals — change modes</h5>
+        <table class="ref-table">
+          <thead><tr><th>Signal</th><th>Name</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>CE</td><td>Counter Enable</td><td>PC increments by 1 (counts up)</td></tr>
+            <tr><td>SU</td><td>Subtract</td><td>ALU subtracts instead of adds</td></tr>
+            <tr><td>ANDI</td><td>AND mode</td><td>ALU does bitwise AND</td></tr>
+            <tr><td>ORI</td><td>OR mode</td><td>ALU does bitwise OR</td></tr>
+            <tr><td>XORI</td><td>XOR mode</td><td>ALU does bitwise XOR</td></tr>
+            <tr><td>SHLI</td><td>Shift Left</td><td>ALU shifts bits left (×2)</td></tr>
+            <tr><td>SHRI</td><td>Shift Right</td><td>ALU shifts bits right (÷2)</td></tr>
+            <tr><td>SPD</td><td>SP Decrement</td><td>Stack pointer subtracts 1 (stack grows down)</td></tr>
+            <tr><td>SPUP</td><td>SP Up</td><td>Stack pointer adds 1 (stack shrinks)</td></tr>
+            <tr><td>HLT</td><td>Halt</td><td>Stops the clock. CPU freezes.</td></tr>
+          </tbody>
+        </table>
+
+        <h5 style="color:#00ff88;margin:12px 0 4px">Build Mode Pin Guide</h5>
+        <table class="ref-table">
+          <thead><tr><th>Pin</th><th>Meaning</th><th>Direction</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>LOAD</td><td>Let data IN from bus</td><td>Input door</td><td>CU knocks here to store a value</td></tr>
+            <tr><td>ENABLE</td><td>Put data OUT to bus</td><td>Output door</td><td>CU knocks here to read a value</td></tr>
+            <tr><td>RD</td><td>Read (RAM only)</td><td>RAM output</td><td>Same as ENABLE but for RAM</td></tr>
+            <tr><td>WR</td><td>Write (RAM only)</td><td>RAM input</td><td>Same as LOAD but for RAM</td></tr>
+            <tr><td>INC</td><td>Increment (PC only)</td><td>Count up</td><td>CE signal connects here</td></tr>
+            <tr><td>CLK</td><td>Clock input</td><td>Timing</td><td>Always connected to clock</td></tr>
+            <tr><td>D / DIN</td><td>Data input</td><td>From bus</td><td>Where bus data arrives</td></tr>
+            <tr><td>Q / DOUT</td><td>Data output</td><td>To bus</td><td>Where stored data leaves</td></tr>
+            <tr><td>DIRECT</td><td>Always-on output</td><td>Hardwired</td><td>REG A/B → ALU (no enable needed)</td></tr>
+          </tbody>
+        </table>
+
+        <h5 style="color:#888;margin:12px 0 4px">Hardwired Connections (always active, no CU signal needed)</h5>
+        <table class="ref-table">
+          <thead><tr><th>From</th><th>To</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>MAR</td><td>RAM address</td><td>RAM always sees MAR's address</td></tr>
+            <tr><td>REG A</td><td>ALU input A</td><td>ALU always sees A's value</td></tr>
+            <tr><td>REG B</td><td>ALU input B</td><td>ALU always sees B's value</td></tr>
+            <tr><td>IR</td><td>CU opcode input</td><td>CU always sees the instruction</td></tr>
+            <tr><td>FLAGS</td><td>CU flag input</td><td>CU always sees CF and ZF (for JZ/JC)</td></tr>
+            <tr><td>Clock</td><td>All components</td><td>Always pulsing. Never stops (until HLT).</td></tr>
+          </tbody>
+        </table>
+
+        <h5 style="color:#888;margin:12px 0 4px">Fetch Cycle (T0 + T1 — same for EVERY instruction)</h5>
+        <pre class="ref-code">T0: CO + MI      PC outputs address → MAR captures
+T1: RO + II + CE RAM outputs instruction → IR captures, PC++
+(T2 onward: depends on the instruction — see Microcode tab)</pre>
+
+        <h4>Learning Tips</h4>
+        <ul>
+          <li>Use Step T+1 to watch one micro-step at a time</li>
+          <li>Use the Microcode tab to see — and edit — the control ROM</li>
+          <li>Try the Challenges tab for guided exercises</li>
+          <li>Click a memory address to set a breakpoint (red dot)</li>
+          <li>Check the History tab to replay any past CPU state</li>
+          <li>The INT button fires a hardware interrupt — write an ISR at 0xF0</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ─── TESTS TAB ─── -->
+    <div class="tab-pane" id="tab-tests">
+      <div style="padding:12px;">
+        <div style="margin-bottom:12px;color:#cde;font-size:13px;line-height:1.5;">
+          <strong style="color:#00ff88;">CPU Verification Suite</strong><br>
+          Each test runs a small program and checks the result. If all tests pass, the simulator is reliable — any wrong answer in your own code is YOUR bug, not the CPU's.
+        </div>
+        <button id="btn-run-tests" class="btn btn-primary" style="margin-bottom:12px;">▶ Run All Tests</button>
+        <div id="tests-results"></div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- ═══════════════════════════════════════
+     BUILD MODE — BREADBOARD ROOT
+     (hidden unless body.build-mode)
+═══════════════════════════════════════ -->
+<div id="breadboard-root">
+
+  <!-- Left: Component Palette -->
+  <div id="bb-palette">
+    <div id="bb-palette-header">Components</div>
+    <div id="bb-palette-list"></div>
+  </div>
+
+  <!-- Center: Canvas -->
+  <div id="bb-canvas-wrap">
+    <canvas id="bb-canvas"></canvas>
+    <div id="bb-wire-hint"></div>
+    <div id="bb-sandbox-banner">SANDBOX</div>
+    <div id="bb-zoom-controls">
+      <button class="bb-zoom-btn" id="bb-zoom-out" title="Zoom out">-</button>
+      <div id="bb-zoom-level">100%</div>
+      <button class="bb-zoom-btn" id="bb-zoom-in" title="Zoom in">+</button>
+      <button class="bb-zoom-btn" id="bb-zoom-reset" title="Reset zoom" style="font-size:11px;width:36px">1:1</button>
+    </div>
+    <div id="bb-complete-overlay"></div>
+  </div>
+
+  <!-- Right: Sidebar -->
+  <div id="bb-sidebar">
+    <div id="bb-sidebar-tabs">
+      <button class="bb-stab" data-tab="inspector">Inspect</button>
+      <button class="bb-stab" data-tab="challenge">Challenges</button>
+      <button class="bb-stab active" data-tab="controls">Controls</button>
+      <button class="bb-stab" data-tab="datasheet">Datasheet</button>
+    </div>
+
+    <!-- Inspector pane -->
+    <div class="bb-stab-pane" id="bb-stab-inspector">
+      <div id="bb-inspector-empty">Select a component to inspect its pins and values.</div>
+    </div>
+
+    <!-- Challenges pane -->
+    <div class="bb-stab-pane" id="bb-stab-challenge">
+      <div id="bb-challenge-header">
+        <div class="bb-challenge-title">Build Challenges</div>
+        <div class="bb-challenge-subtitle" id="bb-challenge-progress">0 / 8 solved</div>
+      </div>
+
+      <div id="bb-challenge-list-wrap">
+        <div class="bb-challenge-list" id="bb-challenge-list-inner"></div>
+        <div style="margin-top:10px">
+          <button class="bb-ctrl-btn" id="bb-sandbox-btn" style="width:100%">Free Build (Sandbox)</button>
+        </div>
+      </div>
+
+      <!-- Challenge detail (hidden until challenge selected) -->
+      <div id="bb-challenge-detail">
+        <button class="bb-challenge-detail-back" onclick="bbBackToChallengeList()">&#8592; Back to list</button>
+        <div class="bb-challenge-detail-num" id="bb-ch-num"></div>
+        <div class="bb-challenge-detail-title" id="bb-ch-title"></div>
+        <div class="bb-challenge-detail-desc" id="bb-ch-desc"></div>
+
+        <div class="bb-learn-box">
+          <div class="bb-learn-box-label">Why this matters</div>
+          <div class="bb-learn-box-text" id="bb-ch-learn"></div>
+        </div>
+
+        <div class="bb-prop-label" style="margin-top:6px">Required Components</div>
+        <div class="bb-required-components" id="bb-ch-required"></div>
+
+        <button class="bb-check-btn" onclick="bbCheckChallenge()">Check Wiring</button>
+        <button class="bb-hint-btn" id="bb-ch-hint-btn" onclick="document.getElementById('bb-ch-hint').classList.toggle('visible')">Show Hint</button>
+        <button class="bb-show-solution-btn" onclick="bbShowSolution()">Show Solution</button>
+
+        <div class="bb-hint-box" id="bb-ch-hint">The solution is shown when you click "Show Solution".</div>
+        <div class="bb-check-result" id="bb-ch-result"></div>
+      </div>
+    </div>
+
+    <!-- Controls pane -->
+    <div class="bb-stab-pane active" id="bb-stab-controls">
+      <div class="bb-controls-section">
+        <div class="bb-controls-title">Clock</div>
+        <div class="bb-ctrl-row">
+          <button class="bb-ctrl-btn pulse-btn" id="bb-pulse-btn" title="Space">Pulse CLK</button>
+        </div>
+        <div class="bb-ctrl-row">
+          <button class="bb-ctrl-btn run-btn"   id="bb-run-btn">Auto-Run</button>
+          <button class="bb-ctrl-btn reset-btn" id="bb-reset-btn">Reset</button>
+        </div>
+        <div class="bb-speed-row">
+          <span>Speed</span>
+          <input type="range" id="bb-speed-slider" min="1" max="2000" value="400" step="1" />
+          <span class="bb-speed-val" id="bb-speed-val">400ms</span>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px;">
+          <button class="bb-ctrl-btn" style="flex:1;font-size:9px;padding:4px" onclick="document.getElementById('bb-speed-slider').value=1;document.getElementById('bb-speed-slider').dispatchEvent(new Event('input'));document.getElementById('bb-speed-val').textContent='1ms'">MAX</button>
+          <button class="bb-ctrl-btn" style="flex:1;font-size:9px;padding:4px" onclick="document.getElementById('bb-speed-slider').value=10;document.getElementById('bb-speed-slider').dispatchEvent(new Event('input'));document.getElementById('bb-speed-val').textContent='10ms'">Fast</button>
+          <button class="bb-ctrl-btn" style="flex:1;font-size:9px;padding:4px" onclick="document.getElementById('bb-speed-slider').value=100;document.getElementById('bb-speed-slider').dispatchEvent(new Event('input'));document.getElementById('bb-speed-val').textContent='100ms'">Medium</button>
+          <button class="bb-ctrl-btn" style="flex:1;font-size:9px;padding:4px" onclick="document.getElementById('bb-speed-slider').value=400;document.getElementById('bb-speed-slider').dispatchEvent(new Event('input'));document.getElementById('bb-speed-val').textContent='400ms'">Slow</button>
+        </div>
+      </div>
+
+      <div class="bb-controls-section">
+        <div class="bb-controls-title">Board</div>
+        <div class="bb-ctrl-row">
+          <button class="bb-ctrl-btn" id="bb-clear-board-btn" style="flex:1">Clear Board</button>
+        </div>
+        <div class="bb-ctrl-row" style="margin-top:6px">
+          <button class="bb-ctrl-btn" id="bb-describe-btn" style="flex:1" onclick="bbDescribeBuild()" title="Copy a text description of all components and wires to clipboard — paste it to get help debugging">Describe Build (copy)</button>
+        </div>
+        <div class="bb-ctrl-row" style="margin-top:4px">
+          <button class="bb-ctrl-btn" style="flex:1" onclick="bbExportBuild()" title="Download your build as a file">Save to File</button>
+          <button class="bb-ctrl-btn" style="flex:1" onclick="document.getElementById('bb-import-file').click()" title="Load a previously saved build from a file">Load from File</button>
+          <input type="file" id="bb-import-file" accept=".json" style="display:none" onchange="bbImportBuild(this)">
+        </div>
+      </div>
+
+      <div class="bb-controls-section bb-template-section">
+        <div class="bb-controls-title">Working CPU Template</div>
+        <div class="bb-template-desc">Load a fully-wired CPU with color-coded wires, labels, and a test program ready to run.</div>
+        <div class="bb-ctrl-row" style="margin-top:6px">
+          <select id="bb-template-prog-select" class="bb-template-select">
+            <option value="add-two-numbers">Add Two Numbers (5+3=8)</option>
+            <option value="count-to-five">Count to 5</option>
+            <option value="store-and-load">Store and Load</option>
+          </select>
+        </div>
+        <div class="bb-ctrl-row" style="margin-top:6px">
+          <button class="bb-ctrl-btn bb-template-btn" id="bb-load-template-btn">Load Template: Working CPU</button>
+        </div>
+        <div class="bb-template-legend">
+          <div class="tl-row"><span class="tl-dot" style="background:#00ff88"></span>Green = Clock wires</div>
+          <div class="tl-row"><span class="tl-dot" style="background:#ffaa00"></span>Amber = Data bus</div>
+          <div class="tl-row"><span class="tl-dot" style="background:#4488ff"></span>Blue = Address bus</div>
+          <div class="tl-row"><span class="tl-dot" style="background:#ff4444"></span>Red = Control signals</div>
+          <div class="tl-row"><span class="tl-dot" style="background:#ff8844"></span>Orange = ALU / Flags</div>
+          <div class="tl-row"><span class="tl-dot" style="background:#aa66ff"></span>Purple = Feedback to CU</div>
+        </div>
+      </div>
+
+      <div class="bb-controls-section">
+        <div class="bb-controls-title">Tips</div>
+        <div style="font-size:10px;color:#4a6278;line-height:1.7">
+          <div>Drag chips from the left panel</div>
+          <div>Click an <span style="color:#00ff88">OUTPUT</span> pin to start a wire</div>
+          <div>Click an <span style="color:#4488ff">INPUT</span> pin to finish it</div>
+          <div>Right-click a wire to delete it</div>
+          <div>Double-click a Switch to toggle it</div>
+          <div>Double-click any chip to rename it</div>
+          <div><kbd style="background:#1a2a3a;padding:1px 4px;border-radius:2px">Space</kbd> = Pulse clock</div>
+          <div><kbd style="background:#1a2a3a;padding:1px 4px;border-radius:2px">Del</kbd> = Delete selected</div>
+          <div><kbd style="background:#1a2a3a;padding:1px 4px;border-radius:2px">Esc</kbd> = Cancel wire</div>
+          <div>Scroll = zoom, drag empty space = pan</div>
+        </div>
+      </div>
+
+      <div class="bb-controls-section">
+        <div class="bb-controls-title">Simulation Log</div>
+        <div class="bb-sim-log" id="bb-sim-log"></div>
+      </div>
+    </div>
+
+    <!-- Datasheet pane -->
+    <div class="bb-stab-pane" id="bb-stab-datasheet">
+      <div class="ds-search-wrap">
+        <input class="ds-search" id="ds-search" type="text" placeholder="Search components..." autocomplete="off" />
+      </div>
+
+      <!-- Signal Quick Reference (always visible in Build mode) -->
+      <details style="margin:6px 8px;background:#0a0e18;border:1px solid #1a2a3a;border-radius:6px;font-family:monospace;font-size:10px;">
+        <summary style="padding:8px 10px;cursor:pointer;color:#4a8;font-weight:700;font-size:11px;">Signal &amp; Pin Reference Sheet</summary>
+        <div style="padding:8px 10px;line-height:1.7;color:#9ab;">
+          <div style="color:#ffaa00;font-weight:700;margin:6px 0 2px;">OUTPUT signals (put data onto bus)</div>
+          <div>CO → PC:ENABLE &nbsp; RO → RAM:RD &nbsp; AO → REGA:ENABLE</div>
+          <div>BO → REGB:ENABLE &nbsp; EO → ALU:ENABLE &nbsp; IO → IR:ENABLE</div>
+          <div>SPO → SP:ENABLE &nbsp; INO → INPUT:ENABLE</div>
+
+          <div style="color:#4488ff;font-weight:700;margin:8px 0 2px;">INPUT signals (capture from bus)</div>
+          <div>MI → MAR:LOAD &nbsp; RI → RAM:WR &nbsp; AI → REGA:LOAD</div>
+          <div>BI → REGB:LOAD &nbsp; II → IR:LOAD &nbsp; OI → OUT:LOAD</div>
+          <div>FI → FLAGS:LOAD &nbsp; J → PC:LOAD &nbsp; SPI → SP:LOAD</div>
+
+          <div style="color:#ff4444;font-weight:700;margin:8px 0 2px;">CONTROL signals</div>
+          <div>CE → PC:INC &nbsp; SU → ALU subtract &nbsp; HLT → stop clock</div>
+          <div>SPD → SP-1 &nbsp; SPUP → SP+1</div>
+          <div>ANDI ORI XORI SHLI SHRI → ALU modes</div>
+
+          <div style="color:#00ff88;font-weight:700;margin:8px 0 2px;">Pin meanings</div>
+          <div>LOAD = input door (capture from bus on clock beat)</div>
+          <div>ENABLE = output door (drive value onto bus)</div>
+          <div>RD = RAM read (same as ENABLE for RAM)</div>
+          <div>WR = RAM write (same as LOAD for RAM)</div>
+          <div>INC = PC counts up by 1</div>
+          <div>DIRECT = always-on output (REG→ALU, no enable needed)</div>
+
+          <div style="color:#888;font-weight:700;margin:8px 0 2px;">Always on (no CU signal needed)</div>
+          <div>MAR→RAM address &nbsp; REGA→ALU &nbsp; REGB→ALU</div>
+          <div>IR→CU opcode &nbsp; FLAGS→CU &nbsp; Clock→all</div>
+
+          <div style="color:#888;font-weight:700;margin:8px 0 2px;">Fetch cycle (every instruction)</div>
+          <div>T0: CO+MI &nbsp; T1: RO+II+CE</div>
+        </div>
+      </details>
+
+      <div class="ds-body">
+        <div class="ds-list" id="ds-list"></div>
+        <div class="ds-detail" id="ds-detail">
+          <div class="ds-empty-detail">Select a component above<br>to read its datasheet.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end #bb-sidebar -->
+
+</div><!-- end #breadboard-root -->
+
+<!-- Tooltip + Context Menu + Rename Modal (shared overlays) -->
+<div id="bb-tooltip"></div>
+<div id="bb-context-menu"></div>
+<div id="bb-rename-modal">
+  <div class="bb-modal-box">
+    <div class="bb-modal-title">Rename Component</div>
+    <input class="bb-modal-input" id="bb-rename-input" type="text" maxlength="20" />
+    <div class="bb-modal-btns">
+      <button class="bb-modal-btn cancel"  id="bb-rename-cancel">Cancel</button>
+      <button class="bb-modal-btn confirm" id="bb-rename-confirm">Rename</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     INSTRUCTION DETAIL PANEL (bottom)
+═══════════════════════════════════════ -->
+<div class="instruction-panel">
+  <div class="panel-header">
+    Current Instruction
+    <span class="panel-hint" id="instr-panel-hint">— step to see micro-step detail</span>
+  </div>
+  <div id="instr-info" class="instr-info-content"></div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCRIPTS
+═══════════════════════════════════════ -->
+<script src="src/cpu.js"></script>
+<script src="src/assembler.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/tutorial.js"></script>
+<script src="src/video2.js"></script>
+<script src="src/cpu-tests.js"></script>
+<script src="src/explainer.js"></script>
+<script src="src/bb-core.js"></script>
+<script src="src/bb-components.js"></script>
+<script src="src/bb-challenges.js"></script>
+<script src="src/bb-engine.js"></script>
+<script src="src/bb-template.js"></script>
+<script src="src/bb-electronics.js"></script>
+<script src="src/bb-datasheet.js"></script>
+<script src="src/bb-tests.js"></script>
+
+</body>
+</html>

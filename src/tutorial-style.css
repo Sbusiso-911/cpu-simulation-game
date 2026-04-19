@@ -1,0 +1,1516 @@
+/* ═══════════════════════════════════════════
+   Tutorial / Learn Mode — Stylesheet
+   Layered on top of the existing simulator.
+   Does NOT modify any existing rules.
+═══════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────
+   SVG DIAGRAM ANIMATIONS (Branch Education style)
+───────────────────────────────────────── */
+
+/* Clock waveform animation — slides right continuously */
+@keyframes clk-wave-march {
+  from { stroke-dashoffset: 120; }
+  to   { stroke-dashoffset: 0; }
+}
+.clk-waveform {
+  stroke-dasharray: 120;
+  animation: clk-wave-march 1.8s linear infinite;
+}
+
+/* Clock output dot — gentle pulse */
+@keyframes clk-pulse {
+  0%, 100% { opacity: 0.6; r: 3; }
+  50%       { opacity: 1;   r: 4.5; }
+}
+.clk-pulse-dot {
+  animation: clk-pulse 1s ease-in-out infinite;
+}
+
+/* Component idle shimmer — very subtle opacity cycle */
+@keyframes comp-idle-shimmer {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.92; }
+}
+.cpu-comp {
+  animation: comp-idle-shimmer 4s ease-in-out infinite;
+}
+/* Stagger each component's idle animation to avoid sync */
+.cpu-comp:nth-child(1)  { animation-delay: 0s; }
+.cpu-comp:nth-child(2)  { animation-delay: 0.4s; }
+.cpu-comp:nth-child(3)  { animation-delay: 0.8s; }
+.cpu-comp:nth-child(4)  { animation-delay: 1.2s; }
+.cpu-comp:nth-child(5)  { animation-delay: 1.6s; }
+.cpu-comp:nth-child(6)  { animation-delay: 2.0s; }
+.cpu-comp:nth-child(7)  { animation-delay: 2.4s; }
+.cpu-comp:nth-child(8)  { animation-delay: 2.8s; }
+.cpu-comp:nth-child(9)  { animation-delay: 3.2s; }
+.cpu-comp:nth-child(10) { animation-delay: 3.6s; }
+.cpu-comp:nth-child(11) { animation-delay: 0.2s; }
+
+/* Bit cell — smooth color transition when flashing */
+.sch-cell rect {
+  transition: fill 0.15s ease, opacity 0.15s ease;
+}
+
+/* RAM cell hover highlight */
+.ram-cell {
+  transition: fill 0.1s ease, stroke-width 0.1s ease;
+}
+.ram-cell:hover {
+  fill: #0a2a50 !important;
+  stroke-width: 1.2 !important;
+}
+
+/* Device icon subtle float animation */
+@keyframes dev-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-4px); }
+}
+.dev-icon {
+  animation: dev-float 3s ease-in-out infinite;
+}
+.dev-icon:nth-child(2) { animation-delay: 0.4s; }
+.dev-icon:nth-child(3) { animation-delay: 0.8s; }
+.dev-icon:nth-child(4) { animation-delay: 1.2s; }
+.dev-icon:nth-child(5) { animation-delay: 1.6s; }
+
+/* ─────────────────────────────────────────
+   MODE TOGGLE  (header pill)
+───────────────────────────────────────── */
+.mode-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 20px;
+}
+
+.mode-toggle-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.mode-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-bright);
+  border-radius: 20px;
+  padding: 2px;
+  cursor: pointer;
+  gap: 0;
+  transition: border-color 0.2s;
+  user-select: none;
+}
+
+.mode-toggle:hover {
+  border-color: #00ff88;
+}
+
+.mode-toggle-option {
+  padding: 4px 14px;
+  border-radius: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.mode-toggle-option.active {
+  background: #00ff88;
+  color: #001a0d;
+}
+
+/* ─────────────────────────────────────────
+   LEARN MODE LAYOUT
+   In learn mode, the main layout shifts right
+   to accommodate the tutorial panel
+───────────────────────────────────────── */
+body.learn-mode .app-main {
+  grid-template-columns: 340px 500px 310px 1fr;
+}
+
+/* ─────────────────────────────────────────
+   TUTORIAL PANEL
+───────────────────────────────────────── */
+#tutorial-panel {
+  display: none;
+  width: 340px;
+  background: #0d1520;
+  border-right: 2px solid #00ff88;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  order: -1;
+  position: relative;
+}
+
+body.learn-mode #tutorial-panel {
+  display: flex;
+}
+
+.tut-header {
+  background: #081228;
+  border-bottom: 1px solid #0e2840;
+  padding: 10px 14px;
+  flex-shrink: 0;
+}
+
+/* Header top row: lesson num + overview button side by side */
+.tut-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+/* "Overview" replay button in lesson panel header */
+.tut-overview-btn {
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid #1a3a5a;
+  background: #0a1828;
+  color: #4a7a9a;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.tut-overview-btn:hover {
+  border-color: #00aa66;
+  color: #00cc88;
+  background: #071a10;
+}
+
+.tut-lesson-num {
+  font-size: 10px;
+  color: #00ff88;
+  font-family: var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.tut-lesson-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e8f4ff;
+  line-height: 1.3;
+}
+
+/* Progress bar */
+.tut-progress-bar-wrap {
+  margin-top: 8px;
+  background: #0a1a28;
+  border-radius: 4px;
+  height: 4px;
+  overflow: hidden;
+}
+
+.tut-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00ff88, #00ccaa);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+/* Progress dots */
+.tut-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.tut-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1a2a3a;
+  border: 1px solid #2a3a4a;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tut-dot:hover {
+  border-color: #00aa66;
+}
+
+.tut-dot.dot-done {
+  background: #00aa66;
+  border-color: #00ff88;
+}
+
+.tut-dot.dot-current {
+  background: #00ff88;
+  border-color: #00ff88;
+  box-shadow: 0 0 6px rgba(0, 255, 136, 0.6);
+}
+
+/* ─────────────────────────────────────────
+   SCROLLABLE CONTENT AREA
+───────────────────────────────────────── */
+.tut-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #1e3a50 transparent;
+}
+
+.tut-body::-webkit-scrollbar { width: 4px; }
+.tut-body::-webkit-scrollbar-track { background: transparent; }
+.tut-body::-webkit-scrollbar-thumb { background: #1e3a50; border-radius: 2px; }
+
+/* ─────────────────────────────────────────
+   LESSON CONTENT
+───────────────────────────────────────── */
+.tut-explanation {
+  color: #c8dff0;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.tut-explanation p {
+  margin-bottom: 10px;
+}
+
+.tut-explanation p:last-child {
+  margin-bottom: 0;
+}
+
+.tut-explanation strong {
+  color: #e8f4ff;
+  font-weight: 700;
+}
+
+.tut-explanation code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: #0a1a28;
+  border: 1px solid #1a2e42;
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: #79c0ff;
+}
+
+.tut-explanation em {
+  color: #00cc88;
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Signal highlight */
+.sig-highlight {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: #2a1a00;
+  border: 1px solid #664400;
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: #ff9944;
+}
+
+/* ─────────────────────────────────────────
+   TASK BOX
+───────────────────────────────────────── */
+.tut-task {
+  background: #071520;
+  border: 1px solid #0e3060;
+  border-left: 3px solid #4488ff;
+  border-radius: 5px;
+  padding: 12px;
+  position: relative;
+  transition: border-color 0.3s;
+}
+
+.tut-task.task-active {
+  border-left-color: #00ff88;
+  animation: task-pulse 2s ease-in-out infinite;
+}
+
+.tut-task.task-done {
+  border-left-color: #00ff88;
+  border-color: #00aa66;
+  background: #071a10;
+  animation: none;
+}
+
+@keyframes task-pulse {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 12px rgba(0, 255, 136, 0.2); }
+}
+
+.tut-task-label {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #4488ff;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tut-task.task-done .tut-task-label {
+  color: #00ff88;
+}
+
+.tut-task-check {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #4488ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.tut-task.task-done .tut-task-check {
+  background: #00ff88;
+  border-color: #00ff88;
+  color: #001a0d;
+}
+
+.tut-task-text {
+  font-size: 13px;
+  color: #b0ccdf;
+  line-height: 1.5;
+}
+
+.tut-task-progress {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: #4488ff;
+  transition: color 0.3s;
+}
+
+.tut-task.task-done .tut-task-progress {
+  color: #00ff88;
+}
+
+/* ─────────────────────────────────────────
+   WHY BOX
+───────────────────────────────────────── */
+.tut-why-wrap {
+  border: 1px solid #1a2a3a;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.tut-why-toggle {
+  width: 100%;
+  background: #0a1825;
+  border: none;
+  padding: 8px 12px;
+  color: #7a9ab8;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: background 0.15s;
+}
+
+.tut-why-toggle:hover {
+  background: #0e2035;
+  color: #a0bcd0;
+}
+
+.tut-why-arrow {
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.tut-why-toggle.open .tut-why-arrow {
+  transform: rotate(90deg);
+}
+
+.tut-why-content {
+  display: none;
+  padding: 10px 12px;
+  background: #080d14;
+  font-size: 12.5px;
+  color: #8aabb8;
+  line-height: 1.6;
+  border-top: 1px solid #1a2a3a;
+}
+
+.tut-why-content.open {
+  display: block;
+}
+
+/* ─────────────────────────────────────────
+   NARRATIVE / CYCLE EXPLANATION
+───────────────────────────────────────── */
+.tut-cycle-box {
+  background: #0a1220;
+  border: 1px solid #1a2a40;
+  border-radius: 5px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #7a9ab8;
+  line-height: 1.5;
+}
+
+.tut-cycle-box strong {
+  color: #e0f0ff;
+}
+
+.tut-phase-fetch {
+  color: #4488ff;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.tut-phase-exec {
+  color: #ff8844;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ─────────────────────────────────────────
+   PREDICTION WIDGET (Lesson 8)
+───────────────────────────────────────── */
+.tut-prediction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tut-prediction-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tut-prediction-q {
+  color: #c0d8ea;
+}
+
+.tut-prediction-btn {
+  display: flex;
+  gap: 4px;
+}
+
+.tut-pred-choice {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid #2a3a50;
+  background: #0a1628;
+  color: #7a9ab8;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tut-pred-choice:hover {
+  border-color: #4488ff;
+  color: #90b8ff;
+}
+
+.tut-pred-choice.correct {
+  background: #0a2810;
+  border-color: #00aa66;
+  color: #00ff88;
+}
+
+.tut-pred-choice.wrong {
+  background: #2a0a0a;
+  border-color: #aa2222;
+  color: #ff6666;
+}
+
+/* ─────────────────────────────────────────
+   FOOTER NAV
+───────────────────────────────────────── */
+.tut-footer {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  background: #081228;
+  border-top: 1px solid #0e2840;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tut-nav-btn {
+  padding: 6px 16px;
+  border-radius: 5px;
+  border: 1px solid #1a3a60;
+  background: #0a1e38;
+  color: #6090b8;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tut-nav-btn:hover:not(:disabled) {
+  border-color: #3a6a90;
+  color: #90c0e0;
+  background: #0e2848;
+}
+
+.tut-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.tut-nav-next {
+  background: #0d3820;
+  border-color: #1a6030;
+  color: #50d880;
+  font-weight: 700;
+}
+
+.tut-nav-next:hover:not(:disabled) {
+  background: #154830;
+  border-color: #00aa55;
+  color: #00ff88;
+}
+
+.tut-nav-next.enabled {
+  box-shadow: 0 0 10px rgba(0, 200, 100, 0.3);
+  animation: next-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes next-glow {
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 200, 100, 0.2); }
+  50%       { box-shadow: 0 0 14px rgba(0, 200, 100, 0.5); }
+}
+
+.tut-skip-link {
+  font-size: 10px;
+  color: #3a5060;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 4px;
+  background: none;
+  border: none;
+  transition: color 0.15s;
+}
+
+.tut-skip-link:hover {
+  color: #5a7080;
+}
+
+/* ─────────────────────────────────────────
+   COMPONENT DIMMING  (learn mode only)
+───────────────────────────────────────── */
+body.learn-mode .tut-dim {
+  opacity: 0.12;
+  pointer-events: none;
+  filter: grayscale(0.7);
+  transition: opacity 0.4s, filter 0.4s;
+}
+
+body.learn-mode .tut-active-comp {
+  opacity: 1;
+  pointer-events: auto;
+  filter: none;
+  transition: opacity 0.4s, filter 0.4s;
+}
+
+/* Ring around currently focused component in diagram */
+body.learn-mode .tut-spotlight {
+  outline: 2px solid rgba(0, 255, 136, 0.5);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ─────────────────────────────────────────
+   COMPLETION OVERLAY
+───────────────────────────────────────── */
+.tut-complete-banner {
+  background: linear-gradient(135deg, #071a10, #0a2818);
+  border: 1px solid #00aa55;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.tut-complete-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.5));
+}
+
+.tut-complete-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #00ff88;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.tut-complete-text {
+  font-size: 12px;
+  color: #7abf9a;
+  line-height: 1.5;
+}
+
+/* ─────────────────────────────────────────
+   LESSON ACCENT COLORS (one per lesson)
+───────────────────────────────────────── */
+.tut-accent-1  #tutorial-panel { border-right-color: #00ff88; }
+.tut-accent-2  #tutorial-panel { border-right-color: #4488ff; }
+.tut-accent-3  #tutorial-panel { border-right-color: #ffaa00; }
+.tut-accent-4  #tutorial-panel { border-right-color: #ff8844; }
+.tut-accent-5  #tutorial-panel { border-right-color: #cc44ff; }
+.tut-accent-6  #tutorial-panel { border-right-color: #44ddff; }
+.tut-accent-7  #tutorial-panel { border-right-color: #ffdd44; }
+.tut-accent-8  #tutorial-panel { border-right-color: #ff4488; }
+.tut-accent-9  #tutorial-panel { border-right-color: #88ff44; }
+.tut-accent-10 #tutorial-panel { border-right-color: #ff6644; }
+.tut-accent-11 #tutorial-panel { border-right-color: #44ffcc; }
+.tut-accent-12 #tutorial-panel { border-right-color: #ffffff; }
+
+/* ─────────────────────────────────────────
+   INLINE DIAGRAM HELPERS
+───────────────────────────────────────── */
+.tut-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0;
+}
+
+.tut-sig-on {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: #2a1400;
+  border: 1px solid #ff6600;
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: #ff9944;
+}
+
+.tut-sig-off {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: #0a1428;
+  border: 1px solid #1a2a3a;
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: #3a4a5a;
+}
+
+.tut-ascii-diagram {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #4a7a9a;
+  background: #06101a;
+  border: 1px solid #0e2030;
+  border-radius: 4px;
+  padding: 8px 10px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* ─────────────────────────────────────────
+   RESPONSIVE: narrow panels in learn mode
+───────────────────────────────────────── */
+@media (max-width: 1400px) {
+  body.learn-mode .app-main {
+    grid-template-columns: 300px 460px 260px 1fr;
+  }
+  #tutorial-panel {
+    width: 300px;
+  }
+}
+
+@media (max-width: 1200px) {
+  body.learn-mode .app-main {
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: auto auto;
+  }
+  body.learn-mode .panel-center,
+  body.learn-mode .panel-right {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────
+   TUTORIAL MOBILE — max-width: 900px
+───────────────────────────────────────── */
+@media (max-width: 900px) {
+  /* Stack tutorial panel above everything, full width */
+  body.learn-mode .app-main {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  #tutorial-panel {
+    width: 100% !important;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 2px solid #00ff88;
+    order: -1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.learn-mode #tutorial-panel {
+    display: flex;
+  }
+
+  body.learn-mode .panel-center,
+  body.learn-mode .panel-right {
+    display: flex;
+  }
+
+  body.learn-mode .panel-diagram {
+    overflow-y: visible;
+  }
+
+  /* Make the tutorial panel collapsible via tapping header */
+  .tut-header {
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  /* Progress dots: bigger for tapping */
+  .tut-dot {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+  }
+
+  /* Nav buttons: larger for touch */
+  .tut-nav-btn {
+    padding: 10px 18px;
+    font-size: 13px;
+    min-height: 44px;
+  }
+
+  .tut-skip-link {
+    padding: 8px;
+    font-size: 12px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Footer: sticky at bottom of panel */
+  .tut-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+  }
+
+  /* Task boxes: slightly larger text */
+  .tut-task-text {
+    font-size: 14px;
+  }
+
+  /* Prediction buttons: bigger touch targets */
+  .tut-pred-choice {
+    padding: 8px 14px;
+    font-size: 13px;
+    min-height: 40px;
+  }
+
+  /* Why toggle button: bigger */
+  .tut-why-toggle {
+    padding: 12px;
+    font-size: 12px;
+    min-height: 44px;
+  }
+
+  /* Mode toggle: bigger for touch */
+  .mode-toggle-option {
+    padding: 8px 16px;
+    font-size: 12px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+  }
+
+  .mode-toggle-wrap {
+    margin-left: 0;
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  #tutorial-panel {
+    max-height: 45vh;
+  }
+
+  .tut-explanation {
+    font-size: 13px;
+  }
+
+  .tut-lesson-title {
+    font-size: 14px;
+  }
+
+  .tut-dot {
+    width: 12px;
+    height: 12px;
+    min-width: 12px;
+    min-height: 12px;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   OVERVIEW PANEL — Cinematic Scene-by-Scene
+   Fullscreen overlay layered over the app.
+═══════════════════════════════════════════ */
+
+.overview-panel {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.overview-panel.ov-visible {
+  display: flex;
+  pointer-events: all;
+}
+
+/* Dark semi-transparent backdrop */
+.ov-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 8, 18, 0.93);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* Main content card — side-by-side layout */
+.ov-content {
+  position: relative;
+  z-index: 1;
+  width: min(1300px, 98vw);
+  height: 94vh;
+  max-height: 94vh;
+  padding: 12px 16px 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─────────────────────────────────────────
+   SIDE-BY-SIDE LAYOUT
+───────────────────────────────────────── */
+.ov-layout {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+/* Left side — diagram (60%) */
+.ov-diagram-side {
+  flex: 3;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Right side — text panel (40%) */
+.ov-text-side {
+  flex: 2;
+  min-width: 240px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 4px 20px;
+  border-left: 1px solid #0e2236;
+  overflow: hidden;
+  gap: 10px;
+}
+
+/* ─────────────────────────────────────────
+   ANIMATION AREA — fills the diagram side
+───────────────────────────────────────── */
+.ov-animation-area {
+  flex: 1;
+  min-height: 0;
+  background: #020a14;
+  border: 1px solid #0e2236;
+  border-radius: 8px;
+  overflow: auto;
+  position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: #1a3a50 transparent;
+  cursor: grab;
+}
+
+.ov-animation-area::-webkit-scrollbar { width: 6px; height: 6px; }
+.ov-animation-area::-webkit-scrollbar-track { background: transparent; }
+.ov-animation-area::-webkit-scrollbar-thumb { background: #1a3a50; border-radius: 3px; }
+
+.ov-animation-area svg {
+  display: block;
+  /* Width/height set programmatically in JS */
+}
+
+/* ─────────────────────────────────────────
+   DETAILED SCHEMATIC — component & cell styles
+───────────────────────────────────────── */
+
+/* Component group base */
+.cpu-comp {
+  cursor: default;
+  transition: opacity 0.3s ease;
+}
+
+/* Bit cell base */
+.sch-cell rect {
+  transition: fill 0.15s ease, opacity 0.3s ease;
+}
+
+/* RAM grid cell */
+.ram-cell {
+  transition: fill 0.12s ease, opacity 0.3s ease;
+}
+
+/* Animated data packet dot */
+.cpu-packet {
+  transition: none;
+}
+
+/* ─────────────────────────────────────────
+   SCENE 1 — Device icons + chip (legacy keyframes kept for safety)
+───────────────────────────────────────── */
+@keyframes ov-chip-pulse {
+  0%, 100% { opacity: 0.55; r: 6px; }
+  50%       { opacity: 1;    r: 9px; }
+}
+
+@keyframes ov-comp-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─────────────────────────────────────────
+   SCENE 2 — Fetch / Decode / Execute cycle
+───────────────────────────────────────── */
+@keyframes ov-badge-glow {
+  0%   { filter: drop-shadow(0 0 0px transparent); }
+  50%  { filter: drop-shadow(0 0 10px currentColor); }
+  100% { filter: drop-shadow(0 0 0px transparent); }
+}
+
+/* ─────────────────────────────────────────
+   SCENE 3 — Clock waveform
+───────────────────────────────────────── */
+@keyframes ov-tick-pop {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.7); }
+  30%  { opacity: 1; transform: translateY(0)    scale(1.1); }
+  70%  { opacity: 1; transform: translateY(0)    scale(1); }
+  100% { opacity: 0; transform: translateY(0)    scale(1); }
+}
+
+/* ─────────────────────────────────────────
+   SCENE 4 — Memory hallway
+───────────────────────────────────────── */
+@keyframes ov-door-open {
+  0%   { transform: scaleX(1); }
+  30%  { transform: scaleX(0.12); }
+  70%  { transform: scaleX(0.12); }
+  100% { transform: scaleX(1); }
+}
+
+/* ─────────────────────────────────────────
+   SCENE 5 — Address cursor
+───────────────────────────────────────── */
+@keyframes ov-addr-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+/* ─────────────────────────────────────────
+   SCENE 6 — Instruction breakdown
+───────────────────────────────────────── */
+@keyframes ov-value-travel {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ─────────────────────────────────────────
+   SHARED SVG element helpers
+───────────────────────────────────────── */
+@keyframes ov-packet-flow {
+  0%   { offset-distance: 0%;   opacity: 1; }
+  85%  { offset-distance: 100%; opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+@keyframes ov-node-flash {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+@keyframes ov-glow-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; filter: brightness(1.4); }
+}
+
+@keyframes ov-fade-in-out {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes ov-particle {
+  0%   { transform: translate(0, 0);    opacity: 0.7; }
+  100% { transform: translate(var(--px), var(--py)); opacity: 0; }
+}
+
+/* Scene 14 final particles */
+.ov-particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #00ff88;
+  pointer-events: none;
+  animation: ov-particle 3s ease-out infinite;
+}
+
+/* ─────────────────────────────────────────
+   OVERVIEW RESPONSIVE — mobile: stack vertically
+───────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ov-content {
+    padding: 8px 10px 10px;
+    height: 96vh;
+    max-height: 96vh;
+  }
+
+  .ov-layout {
+    flex-direction: column;
+  }
+
+  .ov-diagram-side {
+    flex: 0 0 auto;
+    height: clamp(220px, 52vw, 380px);
+  }
+
+  .ov-animation-area {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .ov-text-side {
+    flex: 1;
+    min-height: 0;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid #0e2236;
+    padding: 12px 4px 0;
+  }
+
+  .ov-scene-text {
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+}
+
+@media (max-width: 480px) {
+  .ov-diagram-side {
+    height: 200px;
+  }
+
+  .ov-scene-text {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+/* Scene counter */
+.ov-scene-counter {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #2a5a3a;
+  flex-shrink: 0;
+}
+
+/* Scene text wrapper — fades in on each new scene */
+.ov-scene-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: none;
+}
+
+.ov-scene-wrap.ov-fade-in {
+  animation: ov-scene-appear 0.45s ease forwards;
+}
+
+@keyframes ov-scene-appear {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Scene title */
+.ov-scene-title {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #00cc88;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+/* Scene text — scrollable, fills available height in the text panel */
+.ov-scene-text {
+  flex: 1;
+  min-height: 0;
+  color: #c8dff0;
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #1e3a50 transparent;
+}
+
+.ov-scene-text::-webkit-scrollbar { width: 4px; }
+.ov-scene-text::-webkit-scrollbar-track { background: transparent; }
+.ov-scene-text::-webkit-scrollbar-thumb { background: #1e3a50; border-radius: 2px; }
+
+.ov-scene-text p {
+  margin-bottom: 14px;
+}
+
+.ov-scene-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* ─────────────────────────────────────────
+   FETCH-DECODE-EXECUTE Animation
+───────────────────────────────────────── */
+.ov-cycle-anim {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 24px 0 8px;
+}
+
+.ov-cycle-step {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #1a3a2a;
+  padding: 10px 22px;
+  border: 2px solid #1a3a2a;
+  border-radius: 6px;
+  transition: color 0.3s, border-color 0.3s, box-shadow 0.3s, background 0.3s;
+}
+
+.ov-cycle-step.ov-cycle-active {
+  color: #00ff88;
+  border-color: #00ff88;
+  background: rgba(0, 255, 136, 0.06);
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.25);
+}
+
+.ov-cycle-arrow {
+  font-size: 20px;
+  color: #1a3a2a;
+  font-weight: 700;
+  transition: color 0.3s;
+}
+
+.ov-cycle-repeat {
+  width: 100%;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #1a5a3a;
+  margin-top: 4px;
+}
+
+/* ─────────────────────────────────────────
+   LOAD R1, 0001 Instruction Breakdown
+───────────────────────────────────────── */
+.ov-instr-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0 8px;
+  background: #050d18;
+  border: 1px solid #0e2030;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.ov-instr-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ov-instr-part {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 6px 16px;
+  border-radius: 5px;
+  min-width: 90px;
+  text-align: center;
+}
+
+.ov-part-cmd {
+  background: #1a0e00;
+  border: 1px solid #884400;
+  color: #ff9944;
+}
+
+.ov-part-reg {
+  background: #001a0e;
+  border: 1px solid #006633;
+  color: #00ff88;
+}
+
+.ov-part-addr {
+  background: #001428;
+  border: 1px solid #003366;
+  color: #4488ff;
+}
+
+.ov-instr-label {
+  font-size: 12px;
+  color: #5a7a8a;
+  line-height: 1.4;
+}
+
+/* ─────────────────────────────────────────
+   SCENE PROGRESS DOTS
+───────────────────────────────────────── */
+.ov-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.ov-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0d1e2e;
+  border: 1px solid #1a2e42;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.ov-dot:hover {
+  border-color: #00aa66;
+  background: #0a2818;
+}
+
+.ov-dot.ov-dot-done {
+  background: #005533;
+  border-color: #00aa66;
+}
+
+.ov-dot.ov-dot-current {
+  background: #00ff88;
+  border-color: #00ff88;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+}
+
+/* ─────────────────────────────────────────
+   OVERVIEW NAVIGATION BAR
+───────────────────────────────────────── */
+.ov-nav {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.ov-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Shared button base */
+.ov-btn {
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+
+.ov-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Skip link */
+.ov-btn-skip {
+  background: transparent;
+  border-color: #1a2a3a;
+  color: #3a5060;
+  font-size: 11px;
+  padding: 7px 14px;
+}
+
+.ov-btn-skip:hover {
+  border-color: #2a4050;
+  color: #5a7080;
+}
+
+/* Previous */
+.ov-btn-prev {
+  background: #0a1828;
+  border-color: #1a3a60;
+  color: #5a80a0;
+}
+
+.ov-btn-prev:hover:not(:disabled) {
+  border-color: #3a6090;
+  color: #80b0d0;
+}
+
+/* Next */
+.ov-btn-next {
+  background: #0d3820;
+  border-color: #1a6030;
+  color: #50d880;
+  min-width: 130px;
+  text-align: center;
+}
+
+.ov-btn-next:hover {
+  background: #154830;
+  border-color: #00aa55;
+  color: #00ff88;
+}
+
+/* Final "Start Lessons" button — more prominent */
+.ov-btn-next.ov-btn-next-final {
+  background: #003a1a;
+  border-color: #00ff88;
+  color: #00ff88;
+  box-shadow: 0 0 14px rgba(0, 255, 136, 0.2);
+  animation: ov-final-pulse 1.8s ease-in-out infinite;
+  min-width: 180px;
+}
+
+.ov-btn-next.ov-btn-next-final:hover {
+  background: #005522;
+  box-shadow: 0 0 22px rgba(0, 255, 136, 0.4);
+}
+
+@keyframes ov-final-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(0, 255, 136, 0.2); }
+  50%       { box-shadow: 0 0 22px rgba(0, 255, 136, 0.45); }
+}
+
+/* ─────────────────────────────────────────
+   OVERVIEW MOBILE — button & element sizing
+───────────────────────────────────────── */
+@media (max-width: 600px) {
+  .ov-cycle-step {
+    font-size: 16px;
+    padding: 7px 14px;
+    letter-spacing: 1.5px;
+  }
+
+  .ov-btn {
+    padding: 8px 12px;
+    font-size: 11px;
+    min-height: 38px;
+  }
+
+  .ov-btn-next {
+    min-width: 100px;
+  }
+
+  .ov-btn-next.ov-btn-next-final {
+    min-width: 140px;
+  }
+
+  .ov-instr-part {
+    font-size: 14px;
+    min-width: 70px;
+    padding: 5px 10px;
+  }
+
+  .ov-dots {
+    gap: 7px;
+  }
+
+  .ov-dot {
+    width: 8px;
+    height: 8px;
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "site": "cpu-game",
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      ".gitignore",
+      "node_modules/**",
+      "package.json",
+      "package-lock.json",
+      "generate-narration.js",
+      "cpu-build-backup.json",
+      ".git/**"
+    ]
+  }
+}
