@@ -35,21 +35,102 @@ const OVERVIEW_SEEN_KEY = 'cpu-overview-seen';
 //  OVERVIEW SCENES — 14 narrative scenes
 // ─────────────────────────────────────────
 
-// Active scene set — switches between Video 1 and Video 2.
-// Default points to V1 (OVERVIEW_SCENES). Switched via the video selector UI.
-let _activeVideo = 1;
-function _getScenes() {
-  if (_activeVideo === 2 && typeof window !== 'undefined' && window.V2_SCENES) return window.V2_SCENES;
-  return OVERVIEW_SCENES;
+// ─────────────────────────────────────────
+//  SERIES + EPISODE REGISTRY
+//  Series A = CPU Architecture (block-level). Series B = Building Blocks (gate-level).
+//  Each episode declares which diagram surface it uses: 'cpu' or 'blocks'.
+//  Episode scene arrays are resolved lazily via scenesRef() so they can live
+//  in separate files loaded after tutorial.js.
+// ─────────────────────────────────────────
+const _SERIES = {
+  A: {
+    id: 'A',
+    label: 'Series A — CPU Architecture',
+    episodes: [
+      { id: 1, label: 'Ep 1 — How a CPU Works', diagram: 'cpu',
+        scenesRef: () => OVERVIEW_SCENES },
+      { id: 2, label: 'Ep 2 — The Stack', diagram: 'cpu',
+        scenesRef: () => (typeof window !== 'undefined' && window.V2_SCENES) ? window.V2_SCENES : [] },
+    ],
+  },
+  B: {
+    id: 'B',
+    label: 'Series B — Building Blocks',
+    episodes: [
+      { id: 1, label: 'Ep 1 — The Clock', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_01_SCENES) ? window.BLOCKS_01_SCENES : [] },
+      { id: 2, label: 'Ep 2 — The Flip-Flop', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_02_SCENES) ? window.BLOCKS_02_SCENES : [] },
+      { id: 3, label: 'Ep 3 — The Register', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_03_SCENES) ? window.BLOCKS_03_SCENES : [] },
+      { id: 4, label: 'Ep 4 — The Counter', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_04_SCENES) ? window.BLOCKS_04_SCENES : [] },
+      { id: 5, label: 'Ep 5 — The Decoder', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_05_SCENES) ? window.BLOCKS_05_SCENES : [] },
+      { id: 6, label: 'Ep 6 — The Multiplexer', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_06_SCENES) ? window.BLOCKS_06_SCENES : [] },
+      { id: 7, label: 'Ep 7 — The Comparator', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_07_SCENES) ? window.BLOCKS_07_SCENES : [] },
+      { id: 8, label: 'Ep 8 — The Adder', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_08_SCENES) ? window.BLOCKS_08_SCENES : [] },
+      { id: 9, label: 'Ep 9 — The ALU', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_09_SCENES) ? window.BLOCKS_09_SCENES : [] },
+      { id: 10, label: 'Ep 10 — RAM', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_10_SCENES) ? window.BLOCKS_10_SCENES : [] },
+      { id: 11, label: 'Ep 11 — Combinational Logic', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_11_SCENES) ? window.BLOCKS_11_SCENES : [] },
+      { id: 12, label: 'Ep 12 — Boolean Algebra & K-maps', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_12_SCENES) ? window.BLOCKS_12_SCENES : [] },
+      { id: 13, label: 'Ep 13 — The Control Unit', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.BLOCKS_13_SCENES) ? window.BLOCKS_13_SCENES : [] },
+    ],
+  },
+  C: {
+    id: 'C',
+    label: 'Series C — Down To The Atoms',
+    episodes: [
+      { id: 1, label: 'Ep 1 — The Transistor', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.ATOMS_01_SCENES) ? window.ATOMS_01_SCENES : [] },
+      { id: 2, label: 'Ep 2 — The CMOS Inverter', diagram: 'blocks',
+        scenesRef: () => (typeof window !== 'undefined' && window.ATOMS_02_SCENES) ? window.ATOMS_02_SCENES : [] },
+    ],
+  },
+};
+
+let _activeSeriesId   = 'A';
+let _activeEpisodeIdx = 0;
+
+function _activeEpisode() {
+  const s = _SERIES[_activeSeriesId];
+  if (!s) return null;
+  return s.episodes[_activeEpisodeIdx] || null;
 }
-function _switchVideo(num) {
-  _activeVideo = num;
+function _getScenes() {
+  const ep = _activeEpisode();
+  if (!ep) return [];
+  try { return ep.scenesRef() || []; } catch (e) { return []; }
+}
+function _activeDiagramKind() {
+  const ep = _activeEpisode();
+  return ep ? ep.diagram : 'cpu';
+}
+function _switchEpisode(seriesId, episodeIdx) {
+  if (!_SERIES[seriesId]) return;
+  const eps = _SERIES[seriesId].episodes;
+  if (episodeIdx < 0 || episodeIdx >= eps.length) return;
+  _activeSeriesId   = seriesId;
+  _activeEpisodeIdx = episodeIdx;
   Tutorial.currentScene = 0;
   Tutorial.currentPage = 0;
-  // Re-render
+  // Tear down the previous scene's animation loop and surfaces.
+  if (_currentSceneCleanup) { try { _currentSceneCleanup(); } catch(e) {} _currentSceneCleanup = null; }
+  _diagBuilt = false;
+  _diagContainer = null;
+  if (typeof Blocks !== 'undefined' && Blocks.teardown) Blocks.teardown();
+  const animArea = document.getElementById('ov-animation-area');
+  if (animArea) animArea.innerHTML = '';
   if (typeof renderOverviewScene === 'function') renderOverviewScene(0, 0);
-  // Update dots
-  if (typeof _buildSceneDots === 'function') _buildSceneDots();
+  if (typeof buildOverviewDots === 'function') buildOverviewDots();
 }
 
 const OVERVIEW_SCENES = [
@@ -4925,21 +5006,43 @@ function _drawCU(layer) {
   }));
   g.appendChild(_smallText(CU_X + CU_W/2, romLabelY, 'MICROCODE ROM', OV_COLORS.red, 'middle'));
 
-  // Output signal list (right side) — with tiny stub lines
-  const sigs = ['CO','CE','MI','RO','RI','II','IO','AI','AO','BI','EO','SU','OI','FI','HLT','J'];
+  // Output signal list — all 28 control signals the CU can assert (matches
+  // the CS definitions in cpu.js).  Laid out in TWO columns on the right
+  // edge of the CU so 28 labels fit without overlapping.
+  const sigs = [
+    // Column 1 (left) — bus I/O + flags + flow-control
+    'CO','CE','MI','RO','RI','II','IO','AI','AO','BI','BO','EO','OI','FI',
+    // Column 2 (right) — ALU modes + halt/jump + stack + input
+    'SU','ANDI','ORI','XORI','SHLI','SHRI','HLT','J','PCI','SPO','SPI','SPD','SPUP','INO',
+  ];
+  const perCol = Math.ceil(sigs.length / 2);       // 14
+  const colStartY = CU_Y + 24;
+  const colEndY   = CU_Y + CU_H - 14;
+  const rowSpacing = (colEndY - colStartY) / (perCol - 1);
   sigs.forEach((s, i) => {
-    const sy = CU_Y + 30 + i * 10;
-    const isActive = i % 3 === 0; // visual variety — some signals look "primed"
-    g.appendChild(_smallText(CU_X + CU_W - 10, sy, s, OV_COLORS.orange, 'end'));
-    // Stub line from signal label to right edge
+    const col = Math.floor(i / perCol);            // 0 or 1
+    const row = i % perCol;
+    const sy  = colStartY + row * rowSpacing;
+    // Two columns side by side — column 0 is the left one, column 1 the right
+    const labelX = (col === 0) ? (CU_X + CU_W - 36) : (CU_X + CU_W - 10);
+    const stubEndX = labelX + 8;
+    const isActive = i % 3 === 0;
+    // Label
+    g.appendChild(mkSVG('text', {
+      x: labelX, y: sy, 'text-anchor': 'end',
+      fill: OV_COLORS.orange,
+      'font-family': 'monospace', 'font-size': '6', 'font-weight': '700',
+      opacity: '0.9',
+    })).textContent = s;
+    // Stub line from label to slightly right
     g.appendChild(mkSVG('line', {
-      x1: CU_X + CU_W - 9, y1: sy - 2, x2: CU_X + CU_W - 2, y2: sy - 2,
-      stroke: OV_COLORS.orange, 'stroke-width': '0.8', opacity: isActive ? '0.7' : '0.35',
+      x1: labelX + 1, y1: sy - 2, x2: stubEndX, y2: sy - 2,
+      stroke: OV_COLORS.orange, 'stroke-width': '0.6', opacity: isActive ? '0.7' : '0.35',
     }));
-    // Tiny end dot
+    // End dot
     g.appendChild(mkSVG('circle', {
-      cx: CU_X + CU_W - 2, cy: sy - 2, r: '1',
-      fill: OV_COLORS.orange, opacity: isActive ? '0.8' : '0.3',
+      cx: stubEndX, cy: sy - 2, r: '0.9',
+      fill: OV_COLORS.orange, opacity: isActive ? '0.8' : '0.35',
     }));
   });
 }
@@ -5008,8 +5111,39 @@ function _drawALU(layer) {
   // A/B labels
   g.appendChild(_smallText(tx + 4, ty + 8, 'A', OV_COLORS.purple, 'start'));
   g.appendChild(_smallText(tx + tw - 4, ty + 8, 'B', OV_COLORS.purple, 'end'));
-  // SU pin
-  g.appendChild(_smallText(ALU_X + ALU_W - 4, ALU_Y + 12, 'SU', OV_COLORS.red, 'end'));
+
+  // ALU mode-control pins — one per mode signal from the CU.  SU is the
+  // subtract flag; the rest switch the ALU between AND / OR / XOR / SHL /
+  // SHR.  All six sit ABOVE the component box (out of the header stripe),
+  // each with a visible stub line pointing down into the trapezoid top.
+  // No mode asserted = ADD.
+  const modes = ['ANDI', 'ORI', 'XORI', 'SHLI', 'SHRI', 'SU'];
+  const modeLeft  = ALU_X + 6;
+  const modeRight = ALU_X + ALU_W - 6;
+  const modeStep  = (modeRight - modeLeft) / (modes.length - 1);
+  modes.forEach((mode, i) => {
+    const mx = modeLeft + i * modeStep;
+    // Label floats above the component box
+    const modeLbl = mkSVG('text', {
+      x: mx, y: ALU_Y - 8, 'text-anchor': 'middle',
+      fill: OV_COLORS.red,
+      'font-family': 'monospace', 'font-size': '6', 'font-weight': '700',
+      opacity: '0.95',
+    });
+    modeLbl.textContent = mode;
+    g.appendChild(modeLbl);
+    // Stub line from label down through the header stripe into the trapezoid
+    g.appendChild(mkSVG('line', {
+      x1: mx, y1: ALU_Y - 5, x2: mx, y2: ty,
+      stroke: OV_COLORS.red, 'stroke-width': '0.7', opacity: '0.7',
+    }));
+    // Pin dot at the trapezoid top edge
+    g.appendChild(mkSVG('circle', {
+      cx: mx, cy: ty, r: '1.3',
+      fill: OV_COLORS.red, opacity: '0.9',
+    }));
+  });
+
   // CF/ZF outputs
   g.appendChild(_smallText(ALU_X + 4, ALU_Y + ALU_H - 2, 'CF', OV_COLORS.amber, 'start'));
   g.appendChild(_smallText(ALU_X + 32, ALU_Y + ALU_H - 2, 'ZF', OV_COLORS.teal, 'start'));
@@ -6850,13 +6984,12 @@ function buildOverviewPanel() {
 
         <!-- Right: text panel -->
         <div class="ov-text-side">
-          <!-- Video selector — switch between V1 (basics) and V2 (stack) -->
-          <div style="display:flex;gap:6px;align-items:center;padding:6px 10px;background:#0a1020;border-radius:6px;border:1px solid #1a2a3a;flex-shrink:0;margin-bottom:6px;">
-            <label style="color:#668;font-size:10px;font-family:monospace;">Video:</label>
-            <select id="ov-video-select" style="background:#111;color:#8aa;border:1px solid #1a2a3a;border-radius:3px;font-size:11px;font-family:monospace;height:28px;flex:1;">
-              <option value="1">Video 1 — How a CPU Works</option>
-              <option value="2">Video 2 — The Stack</option>
-            </select>
+          <!-- Series + Episode selectors -->
+          <div style="display:flex;gap:6px;align-items:center;padding:6px 10px;background:#0a1020;border-radius:6px;border:1px solid #1a2a3a;flex-shrink:0;margin-bottom:6px;flex-wrap:wrap;">
+            <label style="color:#668;font-size:10px;font-family:monospace;">Series:</label>
+            <select id="ov-series-select" style="background:#111;color:#8aa;border:1px solid #1a2a3a;border-radius:3px;font-size:11px;font-family:monospace;height:28px;flex:1;min-width:150px;"></select>
+            <label style="color:#668;font-size:10px;font-family:monospace;">Episode:</label>
+            <select id="ov-episode-select" style="background:#111;color:#8aa;border:1px solid #1a2a3a;border-radius:3px;font-size:11px;font-family:monospace;height:28px;flex:1;min-width:150px;"></select>
           </div>
           <div class="ov-scene-counter" id="ov-scene-counter">Scene 1 of 14</div>
 
@@ -6909,14 +7042,54 @@ function buildOverviewPanel() {
   // Initialize TTS
   ttsInit();
 
-  // Wire video selector — switch between V1 and V2
-  const videoSelect = document.getElementById('ov-video-select');
-  if (videoSelect) {
-    videoSelect.value = '' + _activeVideo;
-    videoSelect.addEventListener('change', (e) => {
-      const num = parseInt(e.target.value, 10);
-      _switchVideo(num);
-      buildOverviewDots(); // rebuild dots for the new scene set
+  // Wire Series + Episode selectors
+  _wireSeriesSelectors();
+}
+
+function _populateSeriesSelect() {
+  const sel = document.getElementById('ov-series-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  Object.keys(_SERIES).forEach(id => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = _SERIES[id].label;
+    sel.appendChild(opt);
+  });
+  sel.value = _activeSeriesId;
+}
+
+function _populateEpisodeSelect() {
+  const sel = document.getElementById('ov-episode-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const series = _SERIES[_activeSeriesId];
+  if (!series) return;
+  series.episodes.forEach((ep, i) => {
+    const opt = document.createElement('option');
+    opt.value = '' + i;
+    opt.textContent = ep.label;
+    sel.appendChild(opt);
+  });
+  sel.value = '' + _activeEpisodeIdx;
+}
+
+function _wireSeriesSelectors() {
+  _populateSeriesSelect();
+  _populateEpisodeSelect();
+  const seriesSel  = document.getElementById('ov-series-select');
+  const episodeSel = document.getElementById('ov-episode-select');
+  if (seriesSel) {
+    seriesSel.addEventListener('change', (e) => {
+      const newSeries = e.target.value;
+      _switchEpisode(newSeries, 0);
+      _populateEpisodeSelect();
+    });
+  }
+  if (episodeSel) {
+    episodeSel.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.value, 10);
+      _switchEpisode(_activeSeriesId, idx);
     });
   }
 }
@@ -7231,20 +7404,37 @@ function renderOverviewScene(index, page) {
   // Subsequent sentences fire as TTS speaks each one.
   {
     const animArea = document.getElementById('ov-animation-area');
-    if (!_diagBuilt || _diagContainer !== animArea) {
-      buildUnifiedCPUDiagram(animArea);
+    const kind = _activeDiagramKind();
+    if (kind === 'blocks') {
+      // Series B — gate-level diagram. Owned by the Blocks namespace (blocks-core.js).
+      if (typeof Blocks !== 'undefined' && Blocks.build) {
+        Blocks.build(animArea);
+      }
+      // Ensure the CPU-diagram state doesn't try to reuse this container later.
+      _diagBuilt = false;
+      _diagContainer = null;
+    } else {
+      // Series A — CPU block diagram.
+      if (typeof Blocks !== 'undefined' && Blocks.teardown) Blocks.teardown();
+      if (!_diagBuilt || _diagContainer !== animArea) {
+        buildUnifiedCPUDiagram(animArea);
+      }
     }
 
     // Clear any running timers / packets from the previous page
     _clearSceneTimers();
     _clearSentenceTimers();
     _clearPackets();
-    ['data','addr','clk'].forEach(b => _setBusActive(b, false));
-    ['#cpu-phase-label','#cpu-cycle-label','#cpu-ready-label'].forEach(sel => {
-      const el = _diagSVG && _diagSVG.querySelector(sel);
-      if (el) el.textContent = '';
-    });
-    Object.keys(CPU_COMPS).forEach(k => _hideCompVal(k));
+    if (kind !== 'blocks') {
+      ['data','addr','clk'].forEach(b => _setBusActive(b, false));
+      ['#cpu-phase-label','#cpu-cycle-label','#cpu-ready-label'].forEach(sel => {
+        const el = _diagSVG && _diagSVG.querySelector(sel);
+        if (el) el.textContent = '';
+      });
+      Object.keys(CPU_COMPS).forEach(k => _hideCompVal(k));
+    } else if (typeof Blocks !== 'undefined' && Blocks.resetScene) {
+      Blocks.resetScene();
+    }
 
     // Auto-play sentence animations with per-sentence durations (sync engine).
     // Each sentence stays on screen for its `dur` (or auto-calculated from word count).

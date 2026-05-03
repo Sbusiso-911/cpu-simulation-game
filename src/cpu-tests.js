@@ -535,7 +535,7 @@ if (typeof window !== 'undefined') {
   window.CPU_TESTS = CPU_TESTS;
 
   // Wire the Run All Tests button (browser only)
-  if (typeof document === 'undefined') return;
+  if (typeof document !== 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('btn-run-tests');
     const out = document.getElementById('tests-results');
@@ -577,4 +577,5 @@ if (typeof window !== 'undefined') {
       }
     });
   });
+  }
 }

@@ -5,60 +5,140 @@
  */
 
 // ─── Template Programs ────────────────────────────────────────────────────
+// Each program is expressed as a sparse map of address → byte so the
+// templates read cleanly.  Addresses not listed are zero.  Instruction
+// encoding is now 2-byte: opcode at N, operand at N+1 (for 2-byte ops).
 const CPU_TEMPLATE_PROGRAMS = {
   'add-two-numbers': {
     name: 'Add Two Numbers',
-    desc: 'Loads 5 into A, adds 3 from address 14, outputs result (8), then halts.',
-    bytes: [
-      0x55, // LDI 5      — Load immediate 5 into A
-      0x2E, // ADD 14     — A = A + RAM[14] (RAM[14]=3 → result 8)
-      0xE0, // OUT        — Display A on output
-      0xF0, // HLT        — Stop
-      0x00, 0x00, 0x00, 0x00,  // unused
-      0x00, 0x00, 0x00, 0x00,  // unused
-      0x00, 0x00, 0x03, 0x00,  // [14]=3 (data)
-    ],
+    desc: 'Loads 5 into A, adds 3 from address 0x20, outputs result (8), then halts.',
+    // opcode  operand
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 0x05,          //   imm = 5
+      0x02: 0x02,          // ADD
+      0x03: 0x20,          //   addr = 0x20  (where 3 is stored)
+      0x04: 0x0E,          // OUT           (1-byte — no operand)
+      0x05: 0x0F,          // HLT           (1-byte)
+      0x20: 0x03,          // data: 3
+    },
   },
   'count-to-five': {
     name: 'Count to 5',
-    desc: 'Counts from 1 to 5 and displays each value. Uses a loop with zero-flag check.',
-    bytes: [
-      0x51, // LDI 1      — [0] Start A=1
-      0xE0, // OUT        — [1] Display A
-      0x2F, // ADD 15     — [2] A = A + RAM[15] (add 1)
-      0x39, // SUB 9      — [3] Compare: A - RAM[9] (value 6 at addr 9) — sets ZF if A==6
-      0x87, // JZ 7       — [4] If ZF (A was 6), jump to HLT at addr 7
-      0x29, // ADD 9      — [5] A = A + RAM[9] (undo the subtract: add 6 back, keep value)
-      0x61, // JMP 1      — [6] Loop back to OUT
-      0xF0, // HLT        — [7] Done
-      0x00, // [8] unused
-      0x06, // [9] comparison value: 6 (stop when A reaches 6)
-      0x00, 0x00, 0x00, 0x00, 0x00,
-      0x01, // [15] increment: 1
-    ],
+    desc: 'Counts 1 → 5, displays each value in turn, halts. Uses JZ to exit the loop when A reaches 6.',
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 0x01,          //   imm = 1      ; A ← 1
+      0x02: 0x0E,          // OUT            ; LOOP: display A
+      0x03: 0x02,          // ADD
+      0x04: 0x20,          //   addr = 0x20  ; A ← A + 1
+      0x05: 0x03,          // SUB
+      0x06: 0x21,          //   addr = 0x21  ; compare: A − 6
+      0x07: 0x08,          // JZ
+      0x08: 0x0D,          //   target = 0x0D  ; if A was 6, go to HLT
+      0x09: 0x02,          // ADD
+      0x0A: 0x21,          //   addr = 0x21  ; undo: A ← A + 6
+      0x0B: 0x06,          // JMP
+      0x0C: 0x02,          //   target = 0x02  ; back to LOOP
+      0x0D: 0x0F,          // HLT
+      0x20: 0x01,          // increment value
+      0x21: 0x06,          // comparison value (stop when A == 6)
+    },
   },
   'store-and-load': {
     name: 'Store and Load',
-    desc: 'Loads immediate 42 (=0x2A, lower 4 bits = 0x0A = 10) into A, stores it at address 15, clears A, then reloads from address 15 and displays it.',
-    bytes: [
-      0x5A, // LDI 10 (0x0A) — A = 10 (lower nibble of 0x5A)
-      0x4F, // STA 15        — RAM[15] = A
-      0x50, // LDI 0         — A = 0
-      0x1F, // LDA 15        — A = RAM[15]
-      0xE0, // OUT           — Display A (should show 10)
-      0xF0, // HLT           — Stop
-      0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, // [15] will be written by STA
-    ],
+    desc: 'Loads immediate 42 into A, stores it at 0x20, clears A, reloads from 0x20, displays it (should show 42).',
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 42,            //   imm = 42
+      0x02: 0x04,          // STA
+      0x03: 0x20,          //   addr = 0x20
+      0x04: 0x05,          // LDI
+      0x05: 0x00,          //   imm = 0   ; clear A
+      0x06: 0x01,          // LDA
+      0x07: 0x20,          //   addr = 0x20
+      0x08: 0x0E,          // OUT
+      0x09: 0x0F,          // HLT
+      // 0x20 gets written by STA, starts at 0
+    },
+  },
+  'stack-push-pop': {
+    name: 'Stack: PUSH / POP',
+    desc: 'Pushes 5 then 10 onto the stack, clears A, then pops twice. Output shows 10 then 5 — proving LIFO order. Watch SP go 0xFF \u2192 0xFE \u2192 0xFD \u2192 0xFE \u2192 0xFF.',
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 0x05,          //   imm = 5         ; A = 5
+      0x02: 0x10,          // PUSH              ; RAM[0xFF]=5,  SP=0xFE
+      0x03: 0x05,          // LDI
+      0x04: 0x0A,          //   imm = 10        ; A = 10
+      0x05: 0x10,          // PUSH              ; RAM[0xFE]=10, SP=0xFD
+      0x06: 0x05,          // LDI
+      0x07: 0x00,          //   imm = 0         ; A = 0  (wipe)
+      0x08: 0x11,          // POP               ; SP=0xFE, A = RAM[0xFE] = 10
+      0x09: 0x0E,          // OUT               ; show 10
+      0x0A: 0x11,          // POP               ; SP=0xFF, A = RAM[0xFF] = 5
+      0x0B: 0x0E,          // OUT               ; show 5
+      0x0C: 0x0F,          // HLT
+    },
+  },
+  'call-and-return': {
+    name: 'CALL / RET (one function)',
+    desc: 'Calls a "double" function: A=7, CALL 0x10 doubles it via STA + ADD, RET pops the return addr 0x04, OUT shows 14. Watch SP dip to 0xFE during the call and bounce back to 0xFF on RET.',
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 0x07,          //   imm = 7          ; A = 7
+      0x02: 0x12,          // CALL
+      0x03: 0x10,          //   target = 0x10    ; push 0x04, jump to 0x10
+      0x04: 0x0E,          // OUT                ; show 14  (return lands here)
+      0x05: 0x0F,          // HLT
+      // ─── doubling function at 0x10 ──────────
+      0x10: 0x04,          // STA
+      0x11: 0x30,          //   addr = 0x30      ; RAM[0x30] = A
+      0x12: 0x02,          // ADD
+      0x13: 0x30,          //   addr = 0x30      ; A = A + RAM[0x30] = 2*A
+      0x14: 0x13,          // RET                ; pop return addr, jump back to 0x04
+    },
+  },
+  'nested-calls': {
+    name: 'Nested CALL / RET (depth 2)',
+    desc: 'A=5; CALL addOne (which itself CALLs addOneMore). Stack reaches depth 2: [0x14, 0x04]. RETs unwind in LIFO order. Final OUT shows 7. The cleanest demo of why functions need a stack.',
+    program: {
+      0x00: 0x05,          // LDI
+      0x01: 0x05,          //   imm = 5          ; A = 5
+      0x02: 0x12,          // CALL
+      0x03: 0x10,          //   target = 0x10    ; call addOne, push 0x04
+      0x04: 0x0E,          // OUT                ; show 7  (back from outer CALL)
+      0x05: 0x0F,          // HLT
+      // ─── addOne at 0x10 ─────────────────────
+      0x10: 0x02,          // ADD
+      0x11: 0x30,          //   addr = 0x30      ; A = A + 1 = 6
+      0x12: 0x12,          // CALL
+      0x13: 0x20,          //   target = 0x20    ; call addOneMore (NESTED), push 0x14
+      0x14: 0x13,          // RET                ; back to 0x04 (after addOneMore returns here)
+      // ─── addOneMore at 0x20 ─────────────────
+      0x20: 0x02,          // ADD
+      0x21: 0x30,          //   addr = 0x30      ; A = A + 1 = 7
+      0x22: 0x13,          // RET                ; back to 0x14
+      // ─── data ───────────────────────────────
+      0x30: 0x01,          // constant 1 (used by both functions)
+    },
   },
 };
+
+// Turn a sparse {addr: byte} map into a 256-byte Uint8Array.
+function _programToBytes(program) {
+  const out = new Uint8Array(256);
+  for (const [addr, byte] of Object.entries(program)) {
+    out[parseInt(addr)] = byte & 0xFF;
+  }
+  return out;
+}
 
 // ─── Component descriptions for connected wires section ──────────────────
 const WIRE_DESCRIPTIONS = {
   clock:    'Clock pulse — synchronizes all components',
   data:     'Data bus — carries 8-bit values between components',
-  address:  'Address bus — carries 4-bit RAM addresses',
+  address:  'Address bus — carries 8-bit RAM addresses (0–255)',
   control:  'Control signal — activates component behavior each T-state',
   alu:      'ALU connection — arithmetic operands or results',
   feedback: 'Feedback — sends component state back to Control Unit',
@@ -95,6 +175,7 @@ function bbLoadTemplate(programKey) {
     pc:       { x:  60, y: 200 },
     addrBus:  { x: 380, y: 200 },
     mar:      { x: 680, y: 200 },
+    sp:       { x: 880, y: 200 },   // Stack pointer — sits next to MAR (both feed addr bus)
     // Row 3
     dataBus:  { x: 380, y: 380 },
     ram:      { x: 680, y: 340 },
@@ -115,6 +196,7 @@ function bbLoadTemplate(programKey) {
   const pc      = createComponent('PC',       R.pc.x,      R.pc.y);
   const addrBus = createComponent('AddrBus',  R.addrBus.x, R.addrBus.y);
   const mar     = createComponent('MAR',      R.mar.x,     R.mar.y);
+  const sp      = createComponent('SP',       R.sp.x,      R.sp.y);
   const dataBus = createComponent('Bus',      R.dataBus.x, R.dataBus.y);
   const ram     = createComponent('RAM',      R.ram.x,     R.ram.y);
   const regA    = createComponent('Register', R.regA.x,    R.regA.y, { label: 'REG A' });
@@ -124,13 +206,16 @@ function bbLoadTemplate(programKey) {
   const cu      = createComponent('CU',       R.cu.x,      R.cu.y);
   const flags   = createComponent('Flags',    R.flags.x,   R.flags.y);
 
-  // Load program into RAM
-  if (prog.bytes) {
+  // Load program into RAM.  Programs use sparse {addr: byte} map now; older
+  // templates used a flat array (kept as a fallback).
+  if (prog.program) {
+    ram.loadBytes(_programToBytes(prog.program));
+  } else if (prog.bytes) {
     ram.loadBytes(prog.bytes);
   }
 
   // Add all components
-  const allComps = [clock, output, pc, addrBus, mar, dataBus, ram, regA, regB, ir, alu, cu, flags];
+  const allComps = [clock, output, pc, addrBus, mar, sp, dataBus, ram, regA, regB, ir, alu, cu, flags];
   for (const c of allComps) BB.components.push(c);
 
   // ── Helper: add wire with label and color ──────────────────────────────
@@ -157,6 +242,7 @@ function bbLoadTemplate(programKey) {
   addWire(clock, 'CLK', ir,      'CLK',  'CLK to IR',     'clock');
   addWire(clock, 'CLK', ram,     'CLK',  'CLK to RAM',    'clock');
   addWire(clock, 'CLK', pc,      'CLK',  'CLK to PC',     'clock');
+  addWire(clock, 'CLK', sp,      'CLK',  'CLK to SP',     'clock');
   addWire(clock, 'CLK', flags,   'CLK',  'CLK to FLAGS',  'clock');
   addWire(clock, 'CLK', output,  'CLK',  'CLK to OUTPUT', 'clock');
 
@@ -164,7 +250,7 @@ function bbLoadTemplate(programKey) {
   // Reg A drives bus (AO), bus loads Reg A (AI)
   addWire(regA,    'Q',     dataBus, 'P0_IN',  'A out (AO)',    'data');
   addWire(dataBus, 'P0_OUT',regA,    'D',       'Bus to A (AI)', 'data');
-  // Reg B drives bus (BI source), bus loads B
+  // Reg B drives bus (BO), bus loads B (BI)
   addWire(regB,    'Q',     dataBus, 'P1_IN',  'B out (BO)',    'data');
   addWire(dataBus, 'P1_OUT',regB,    'D',       'Bus to B (BI)', 'data');
   // RAM drives bus (RO), bus writes RAM (RI)
@@ -172,24 +258,30 @@ function bbLoadTemplate(programKey) {
   addWire(dataBus, 'P2_OUT',ram,     'DIN',     'Bus to RAM (RI)','data');
   // ALU drives bus (EO)
   addWire(alu,     'OUT',   dataBus, 'P3_IN',  'ALU out (EO)',  'data');
-  // Bus loads IR (II)
-  addWire(dataBus, 'P3_OUT',ir,      'DIN',     'Bus to IR (II)','data');
-  // IR operand drives data bus for LDI (IO signal)
-  addWire(ir,      'OPERAND_D', dataBus, 'P4_IN', 'IR imm to bus (LDI)', 'data');
-  // Bus loads Output (OI)
-  addWire(dataBus, 'P4_OUT',output,  'DIN',     'Bus to OUT (OI)','data');
+  // Bus loads IR (II) + Output (OI)
+  addWire(dataBus, 'P3_OUT',ir,      'DIN',    'Bus to IR (II)', 'data');
+  addWire(dataBus, 'P4_OUT',output,  'DIN',    'Bus to OUT (OI)','data');
+  // PC drives data bus too (CO) — needed for CALL T5 to push the return PC
+  // value into RAM.  Without this wire, CALL would push 0 instead of PC.
+  addWire(pc,      'DOUT',  dataBus, 'P4_IN',  'PC \u2192 data (CO, CALL push)', 'data');
+  // Bus also loads A directly — needed for LDI / IN / RO|AI paths.  (The
+  // existing A-from-bus wire below uses P0_OUT but a 2nd path here is fine.)
 
   // ── ADDRESS BUS connections (blue) ────────────────────────────────────
-  // PC drives address bus (CO)
-  addWire(pc,      'DOUT',  addrBus, 'P0_IN',  'PC addr (CO)',  'address');
-  // IR operand drives address bus (IO)
-  addWire(ir,      'OPERAND',addrBus,'P1_IN',  'IR operand (IO)','address');
+  // With 2-byte instruction encoding, the address bus is driven from THREE
+  // sources: PC (for fetch), RAM (for operand-fetch into MAR during 2-byte
+  // instructions), and — during CALL — Reg B as a temp for the target addr.
+  // Only one driver is active per T-state, enforced by the CU microcode.
+  addWire(pc,      'DOUT',  addrBus, 'P0_IN',  'PC addr (CO)',                 'address');
+  addWire(sp,      'Q',     addrBus, 'P1_IN',  'SP \u2192 addr (SPO, PUSH/POP/CALL/RET)', 'address');
+  addWire(ram,     'DOUT',  addrBus, 'P2_IN',  'RAM operand \u2192 addr (RO|MI)',   'address');
+  addWire(regB,    'Q',     addrBus, 'P3_IN',  'B (CALL temp) \u2192 addr (BO|J)',  'address');
   // Address bus feeds MAR (MI)
-  addWire(addrBus, 'P2_OUT',mar,     'DIN',     'Addr to MAR (MI)','address');
-  // Address bus loads PC for JMP (J)
-  addWire(addrBus, 'P0_OUT',pc,      'DIN',     'Bus to PC (JMP)', 'address');
-  // MAR selects RAM address (permanently connected)
-  addWire(mar,     'ADDR',  ram,     'ADDR',   'MAR to RAM addr', 'address');
+  addWire(addrBus, 'P2_OUT', mar,    'DIN',    'Addr \u2192 MAR (MI)',              'address');
+  // Address bus loads PC for JMP / CALL / RET (J)
+  addWire(addrBus, 'P0_OUT', pc,     'DIN',    'Addr \u2192 PC (J)',                'address');
+  // MAR selects RAM address (permanently connected, always active)
+  addWire(mar,     'ADDR',  ram,     'ADDR',   'MAR \u2192 RAM addr',                'address');
 
   // ── ALU connections (orange) ──────────────────────────────────────────
   // DIRECT pins always output the stored value (unlike Q which needs ENABLE)
@@ -199,21 +291,32 @@ function bbLoadTemplate(programKey) {
   addWire(alu,   'ZF', flags,'ZF_IN','Zero flag',   'alu');
 
   // ── CONTROL UNIT signal outputs (red) ────────────────────────────────
-  addWire(cu, 'CO',  pc,     'ENABLE', 'CO: PC out',    'control');
-  addWire(cu, 'CE',  pc,     'INC',    'CE: PC inc',    'control');
-  addWire(cu, 'MI',  mar,    'LOAD',   'MI: MAR in',    'control');
-  addWire(cu, 'RO',  ram,    'RD',     'RO: RAM out',   'control');
-  addWire(cu, 'RI',  ram,    'WR',     'RI: RAM in',    'control');
-  addWire(cu, 'II',  ir,     'LOAD',   'II: IR in',     'control');
-  addWire(cu, 'IO',  ir,     'ENABLE', 'IO: IR operand','control');
-  addWire(cu, 'AI',  regA,   'LOAD',   'AI: A in',      'control');
-  addWire(cu, 'AO',  regA,   'ENABLE', 'AO: A out',     'control');
-  addWire(cu, 'BI',  regB,   'LOAD',   'BI: B in',      'control');
-  addWire(cu, 'EO',  alu,    'ENABLE', 'EO: ALU out',   'control');
-  addWire(cu, 'SU',  alu,    'SUB',    'SU: subtract',  'control');
-  addWire(cu, 'OI',  output, 'LOAD',   'OI: Output in', 'control');
-  addWire(cu, 'FI',  flags,  'LOAD',   'FI: Flags in',  'control');
-  addWire(cu, 'J',   pc,     'LOAD',   'J: jump',       'control');
+  addWire(cu, 'CO',   pc,     'ENABLE', 'CO: PC out',      'control');
+  addWire(cu, 'CE',   pc,     'INC',    'CE: PC inc',      'control');
+  addWire(cu, 'MI',   mar,    'LOAD',   'MI: MAR in',      'control');
+  addWire(cu, 'RO',   ram,    'RD',     'RO: RAM out',     'control');
+  addWire(cu, 'RI',   ram,    'WR',     'RI: RAM in',      'control');
+  addWire(cu, 'II',   ir,     'LOAD',   'II: IR in',       'control');
+  addWire(cu, 'AI',   regA,   'LOAD',   'AI: A in',        'control');
+  addWire(cu, 'AO',   regA,   'ENABLE', 'AO: A out',       'control');
+  addWire(cu, 'BI',   regB,   'LOAD',   'BI: B in',        'control');
+  addWire(cu, 'BO',   regB,   'ENABLE', 'BO: B out',       'control');
+  addWire(cu, 'EO',   alu,    'ENABLE', 'EO: ALU out',     'control');
+  addWire(cu, 'SU',   alu,    'SUB',    'SU: subtract',    'control');
+  addWire(cu, 'OI',   output, 'LOAD',   'OI: Output in',   'control');
+  addWire(cu, 'FI',   flags,  'LOAD',   'FI: Flags in',    'control');
+  addWire(cu, 'J',    pc,     'LOAD',   'J: jump',         'control');
+  // Extended ALU mode signals
+  addWire(cu, 'ANDI', alu,    'ANDI',   'ANDI: AND mode',  'control');
+  addWire(cu, 'ORI',  alu,    'ORI',    'ORI: OR mode',    'control');
+  addWire(cu, 'XORI', alu,    'XORI',   'XORI: XOR mode',  'control');
+  addWire(cu, 'SHLI', alu,    'SHLI',   'SHLI: SHL mode',  'control');
+  addWire(cu, 'SHRI', alu,    'SHRI',   'SHRI: SHR mode',  'control');
+  // Stack Pointer control signals — drive SP for PUSH / POP / CALL / RET
+  addWire(cu, 'SPO',  sp,     'SPO',    'SPO: SP \u2192 addr bus',  'control');
+  addWire(cu, 'SPI',  sp,     'SPI',    'SPI: SP \u2190 bus (load)','control');
+  addWire(cu, 'SPD',  sp,     'SPD',    'SPD: SP--  (after PUSH/CALL)', 'control');
+  addWire(cu, 'SPUP', sp,     'SPUP',   'SPUP: SP++ (before POP/RET)',  'control');
 
   // ── FEEDBACK to Control Unit (purple) ─────────────────────────────────
   addWire(ir,    'OPCODE', cu, 'OPCODE', 'Opcode to CU',  'feedback');

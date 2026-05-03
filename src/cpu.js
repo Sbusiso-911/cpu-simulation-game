@@ -390,6 +390,38 @@ const INSTRUCTIONS = {
       CS.EO | CS.SU | CS.FI,  // ALU A-B, update flags only (no AI)
     ],
   },
+
+  LDA_IND: {
+    opcode: 0x1A, mnemonic: 'LDA_IND', bytes: 2,
+    description: 'Load A indirect: A ← RAM[RAM[addr]] (treat RAM[addr] as a pointer)',
+    // T2: CO|MI         PC → MAR (point at operand byte)
+    // T3: RO|MI|CE      RAM[MAR] → MAR (operand byte = address-of-pointer); PC++
+    // T4: RO|MI         RAM[MAR] → MAR (dereference: pointer value = data address)
+    // T5: RO|AI         RAM[MAR] → A (final load)
+    microcode: [
+      ...FETCH,
+      CS.CO | CS.MI,
+      CS.RO | CS.MI | CS.CE,
+      CS.RO | CS.MI,
+      CS.RO | CS.AI,
+    ],
+  },
+
+  STA_IND: {
+    opcode: 0x1B, mnemonic: 'STA_IND', bytes: 2,
+    description: 'Store A indirect: RAM[RAM[addr]] ← A (treat RAM[addr] as a pointer)',
+    // T2: CO|MI         PC → MAR (point at operand byte)
+    // T3: RO|MI|CE      operand byte → MAR; PC++
+    // T4: RO|MI         RAM[MAR] → MAR (dereference: pointer value = data address)
+    // T5: AO|RI         A → RAM[MAR]
+    microcode: [
+      ...FETCH,
+      CS.CO | CS.MI,
+      CS.RO | CS.MI | CS.CE,
+      CS.RO | CS.MI,
+      CS.AO | CS.RI,
+    ],
+  },
 };
 
 // Build opcode → instruction lookup

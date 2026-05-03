@@ -247,6 +247,22 @@ class Assembler {
     if (/^\$[0-9a-fA-F]+$/.test(str)) return parseInt(str.slice(1), 16);
     if (/^0b[01]+$/.test(str))        return parseInt(str.slice(2), 2);
     if (/^[0-9]+$/.test(str))         return parseInt(str, 10);
+    // Character literal: 'A' → 65, ' ' → 32, '\n' → 10, '\\' → 92, '\'' → 39
+    const charMatch = str.match(/^'(\\.|[^'\\])'$/);
+    if (charMatch) {
+      const c = charMatch[1];
+      if (c.length === 1) return c.charCodeAt(0);
+      switch (c[1]) {
+        case 'n':  return 10;
+        case 't':  return 9;
+        case 'r':  return 13;
+        case '0':  return 0;
+        case '\\': return 92;
+        case "'":  return 39;
+        case '"':  return 34;
+        default:   return c.charCodeAt(1);
+      }
+    }
     this.errors.push(`Line ${lineNum}: Cannot parse number '${str}'`);
     return null;
   }
@@ -483,6 +499,123 @@ wrap:   LDI 0
 .org 0x80
 .byte 0             ; counter
 .byte 1             ; constant 1`,
+  },
+
+  'Hello World (lazy)': {
+    description: 'Prints "Hello World" by emitting one ASCII byte at a time. The output display now shows the ASCII character of each byte (H, e, l, l, o, ...). No loop, no indirect addressing — just 12 hardcoded LDI/OUT pairs. Watch the output history scroll through the message one character at a time.',
+    source: `; Hello World — the lazy version
+; Each LDI loads one ASCII byte, OUT displays it.
+; Read the OUTPUT HISTORY left-to-right to see the message.
+; ASCII reference:  'H'=72  'e'=101  'l'=108  'o'=111  ' '=32  'W'=87  'r'=114  'd'=100
+
+        LDI 'H'     ; 72   — assembler converts character literal to ASCII byte
+        OUT
+        LDI 'e'     ; 101
+        OUT
+        LDI 'l'     ; 108
+        OUT
+        LDI 'l'     ; 108
+        OUT
+        LDI 'o'     ; 111
+        OUT
+        LDI ' '     ; 32  (space)
+        OUT
+        LDI 'W'     ; 87
+        OUT
+        LDI 'o'     ; 111
+        OUT
+        LDI 'r'     ; 114
+        OUT
+        LDI 'l'     ; 108
+        OUT
+        LDI 'd'     ; 100
+        OUT
+        HLT
+
+; Expected output history: 72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100
+; ASCII column reads: H, e, l, l, o, ' ', W, o, r, l, d`,
+  },
+
+  'Hello World (loop, LDA_IND)': {
+    description: 'Same output as the lazy version, but uses a real loop that walks the string until the null terminator. Uses LDA_IND — the indirect-load opcode that does A = RAM[RAM[ptr]] in a single instruction. No self-modifying code needed. This is how every real CPU prints strings: a pointer in RAM + an indirect load + a loop.',
+    source: `; Hello World — clean loop version using LDA_IND
+;
+; Strategy:
+;   ptr = address of msg
+;   loop:
+;     A = byte at *ptr      ← LDA_IND ptr does this in one instruction
+;     if A == 0 → done
+;     OUT
+;     ptr = ptr + 1
+;     jump loop
+;
+; LDA_IND ptr means: read the byte stored at 'ptr', use that as an address,
+; load THAT byte into A. Two memory reads, one instruction.
+
+start:  LDI msg          ; A = 0x80 (address where string lives)
+        STA ptr          ; ptr = 0x80
+
+loop:   LDA_IND ptr      ; A = RAM[ RAM[ptr] ]  → next character
+        JZ  done         ; null terminator? finish
+        OUT              ; display the character
+
+        LDA ptr          ; bump the pointer
+        ADD one
+        STA ptr
+        JMP loop
+
+done:   HLT
+
+.org 0x40
+ptr:    .byte 0
+one:    .byte 1
+
+.org 0x80
+msg:    .string "Hello World"     ; H, e, l, l, o, ' ', W, o, r, l, d, 0`,
+  },
+
+  'Array Sum with LDA_IND': {
+    description: 'Sums an array of 5 numbers using LDA_IND to walk the array. Outputs the running total after each element so you can watch it grow: 5, 12, 22, 27, 42. This is how arrays are processed in every real language — pointer + indirect load + loop.',
+    source: `; Array Sum — walks an array using LDA_IND
+;
+; The data: arr = [5, 7, 10, 5, 15]
+; Output after each addition: 5, 12, 22, 27, 42
+
+start:  LDI arr          ; ptr = address of array
+        STA ptr
+        LDI 5            ; counter = 5 elements
+        STA cnt
+        LDI 0            ; sum = 0
+        STA sum
+
+loop:   LDA_IND ptr      ; A = arr[i]
+        ADD sum          ; A = sum + arr[i]
+        STA sum
+        OUT              ; show running total
+
+        LDA ptr          ; ptr++
+        ADD one
+        STA ptr
+        LDA cnt          ; counter--
+        SUB one
+        STA cnt
+        JZ  done
+        JMP loop
+
+done:   HLT
+
+.org 0x40
+ptr:    .byte 0
+sum:    .byte 0
+cnt:    .byte 0
+one:    .byte 1
+
+.org 0x80
+arr:    .byte 5
+        .byte 7
+        .byte 10
+        .byte 5
+        .byte 15`,
   },
 };
 

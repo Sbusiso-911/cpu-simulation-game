@@ -816,6 +816,15 @@ function renderCPUDiagram(state) {
     : (cw & CS.SHRI)  ? 'SHR'
     : 'ADD';
 
+  // Individual ALU mode signal flags — shown as tags on the ALU block so
+  // the viewer can see exactly which control line the CU is asserting.
+  const subActive  = !!(cw & CS.SU);
+  const andiActive = !!(cw & CS.ANDI);
+  const oriActive  = !!(cw & CS.ORI);
+  const xoriActive = !!(cw & CS.XORI);
+  const shliActive = !!(cw & CS.SHLI);
+  const shriActive = !!(cw & CS.SHRI);
+
   const busActive = state.busDriver !== 'none';
 
   el.innerHTML = `
@@ -927,9 +936,15 @@ function renderCPUDiagram(state) {
       <div class="comp-title">ALU <span class="comp-subtitle">${aluMode}</span></div>
       <div class="comp-value">${toBin8(state.ALU)}</div>
       <div class="comp-meta">= ${state.ALU} (0x${toHex2(state.ALU)})</div>
-      <div class="comp-sigs">
-        ${aluDriving ? '<span class="sig-tag out-tag">EO</span>' : ''}
-        ${flagsLoad  ? '<span class="sig-tag">FI</span>'         : ''}
+      <div class="comp-sigs comp-sigs-alu">
+        <span class="sig-tag mode-tag ${subActive  ? 'sig-on' : 'sig-off'}">SU</span>
+        <span class="sig-tag mode-tag ${andiActive ? 'sig-on' : 'sig-off'}">ANDI</span>
+        <span class="sig-tag mode-tag ${oriActive  ? 'sig-on' : 'sig-off'}">ORI</span>
+        <span class="sig-tag mode-tag ${xoriActive ? 'sig-on' : 'sig-off'}">XORI</span>
+        <span class="sig-tag mode-tag ${shliActive ? 'sig-on' : 'sig-off'}">SHLI</span>
+        <span class="sig-tag mode-tag ${shriActive ? 'sig-on' : 'sig-off'}">SHRI</span>
+        <span class="sig-tag ${aluDriving ? 'out-tag' : 'sig-off'}">EO</span>
+        <span class="sig-tag ${flagsLoad  ? 'in-tag'  : 'sig-off'}">FI</span>
       </div>
     </div>
 
@@ -945,6 +960,7 @@ function renderCPUDiagram(state) {
       <div class="comp-title">OUTPUT</div>
       <div class="comp-value output-big">${state.OUT}</div>
       <div class="comp-meta">0x${toHex2(state.OUT)} | ${toBin8(state.OUT)}</div>
+      <div class="comp-meta">ASCII: ${(state.OUT >= 32 && state.OUT < 127) ? `'${String.fromCharCode(state.OUT)}'` : '·'}</div>
       ${outLoading ? '<span class="sig-tag in-tag">OI</span>'  : ''}
       ${inDriving  ? '<span class="sig-tag out-tag">INO</span>': ''}
     </div>
@@ -1165,15 +1181,19 @@ function renderOutputHistory() {
     el.innerHTML = '<div class="output-empty">No output yet. Run a program with OUT instructions.</div>';
     return;
   }
-  el.innerHTML = App.outputHistory.map((item, i) => `
+  el.innerHTML = App.outputHistory.map((item, i) => {
+    const ascii = (item.value >= 32 && item.value < 127) ? `'${String.fromCharCode(item.value)}'` : '·';
+    return `
     <div class="output-entry">
       <span class="output-idx">#${i + 1}</span>
       <span class="output-dec">${item.value}</span>
       <span class="output-hex">0x${toHex2(item.value)}</span>
       <span class="output-bin">${formatBinary(toBin8(item.value))}</span>
+      <span class="output-ascii">${ascii}</span>
       <span class="output-cycle">cy:${item.cycle}</span>
     </div>
-  `).join('');
+  `;
+  }).join('');
   el.scrollTop = el.scrollHeight;
 }
 

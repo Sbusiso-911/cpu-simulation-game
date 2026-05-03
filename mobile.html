@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0a0a0a" />
+<title>CPU Mobile</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0a0a0a;
+    color: #ddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  body {
+    padding: 8px;
+    padding-bottom: 60px;
+  }
+  h1 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    color: #ffaa00;
+    font-weight: bold;
+    text-align: center;
+  }
+  section {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 8px;
+  }
+  section h2 {
+    font-size: 12px;
+    margin: 0 0 6px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: normal;
+  }
+
+  /* Code editor */
+  textarea#editor {
+    width: 100%;
+    height: 28vh;
+    min-height: 160px;
+    background: #0a0a0a;
+    color: #ffcc55;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: "Menlo", "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    -webkit-text-size-adjust: 100%;
+  }
+  select, button {
+    font-family: inherit;
+    font-size: 14px;
+    background: #2a2a2a;
+    color: #ddd;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 10px 12px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  select { width: 100%; margin-bottom: 6px; background: #1a1a1a; color: #ffaa00; }
+  button { flex: 1; }
+  button:active { background: #444; }
+  .btn-primary { background: #2a5a8a; border-color: #3a6a9a; color: #fff; }
+  .btn-success { background: #2a6a2a; border-color: #3a8a3a; color: #fff; }
+  .btn-warn    { background: #6a4a2a; border-color: #8a5a3a; color: #fff; }
+  .btn-danger  { background: #6a2a2a; border-color: #8a3a3a; color: #fff; }
+
+  .row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .row:last-child { margin-bottom: 0; }
+
+  /* Status bar */
+  .status {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    font-size: 11px;
+  }
+  .status div {
+    background: #1a1a1a;
+    padding: 4px 6px;
+    border-radius: 3px;
+    text-align: center;
+  }
+  .status .lbl  { color: #666; font-size: 9px; text-transform: uppercase; }
+  .status .val  { color: #ffaa00; font-size: 13px; font-family: monospace; font-weight: bold; }
+  .status .flag-on  { color: #5acc5a; }
+  .status .flag-off { color: #555; }
+
+  /* Output display */
+  #output-big {
+    font-size: 56px;
+    color: #ff8844;
+    font-family: monospace;
+    font-weight: bold;
+    text-align: center;
+    margin: 4px 0;
+    line-height: 1;
+  }
+  #output-meta {
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    font-family: monospace;
+  }
+  #output-history {
+    margin-top: 6px;
+    max-height: 90px;
+    overflow-y: auto;
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 4px;
+    font-family: monospace;
+    font-size: 11px;
+    color: #aaa;
+    line-height: 1.5;
+  }
+  #output-history div { padding: 1px 4px; border-bottom: 1px solid #1a1a1a; }
+  #output-history div:last-child { border-bottom: none; }
+
+  /* RAM grid */
+  #ram-grid {
+    max-height: 35vh;
+    overflow-y: auto;
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 4px;
+    font-family: monospace;
+    font-size: 11px;
+  }
+  .ram-row {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    border-bottom: 1px solid #161616;
+  }
+  .ram-row.modified { background: #2a1f0a; }
+  .ram-row.pc       { background: #1a2a3a; }
+  .ram-addr  { width: 42px; color: #555; }
+  .ram-val   {
+    flex: 1;
+    background: #181818;
+    color: #ffcc55;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: monospace;
+    font-size: 12px;
+    width: 56px;
+    -webkit-appearance: none;
+    appearance: none;
+    text-align: center;
+  }
+  .ram-row.modified .ram-val { background: #3a2a10; color: #ffe699; }
+  .ram-row.pc .ram-val       { border-color: #4a8acc; }
+  .ram-meta { color: #555; font-size: 9px; margin-left: 6px; min-width: 64px; text-align: right; }
+  .ram-was  { color: #aa8855; font-size: 9px; margin-left: 4px; }
+
+  /* Status line */
+  #status-msg {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 11px;
+    color: #aaa;
+    font-family: monospace;
+    min-height: 30px;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+  }
+  #status-msg.error   { color: #ff6655; border-color: #6a3030; background: #1a0a0a; }
+  #status-msg.success { color: #5acc5a; border-color: #2a5a2a; background: #0a1a0a; }
+
+  /* Filter bar inside RAM viewer */
+  .ram-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+    align-items: center;
+    font-size: 11px;
+  }
+  .ram-controls label { color: #888; cursor: pointer; }
+  .ram-controls input[type=checkbox] { transform: scale(1.2); margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<h1>CPU Mobile — Program · Run · Watch</h1>
+
+<section>
+  <h2>1. Pick or write a program</h2>
+  <select id="example-select">
+    <option value="">— pick an example —</option>
+  </select>
+  <textarea id="editor" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+</section>
+
+<section>
+  <h2>2. Controls</h2>
+  <div class="row">
+    <button class="btn-primary" id="btn-assemble">Assemble</button>
+    <button class="btn-success" id="btn-run">Run</button>
+  </div>
+  <div class="row">
+    <button id="btn-step">Step 1</button>
+    <button id="btn-step10">Step 10</button>
+    <button class="btn-warn" id="btn-pause">Pause</button>
+    <button class="btn-danger" id="btn-reset">Reset</button>
+  </div>
+  <div id="status-msg">Ready.</div>
+  <div class="status">
+    <div><div class="lbl">PC</div><div class="val" id="s-pc">00</div></div>
+    <div><div class="lbl">A</div><div class="val" id="s-a">0</div></div>
+    <div><div class="lbl">B</div><div class="val" id="s-b">0</div></div>
+    <div><div class="lbl">SP</div><div class="val" id="s-sp">FF</div></div>
+    <div><div class="lbl">IR</div><div class="val" id="s-ir">00</div></div>
+    <div><div class="lbl">T</div><div class="val" id="s-t">0</div></div>
+    <div><div class="lbl">CF</div><div class="val flag-off" id="s-cf">0</div></div>
+    <div><div class="lbl">ZF</div><div class="val flag-off" id="s-zf">0</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>3. Output</h2>
+  <div id="output-big">0</div>
+  <div id="output-meta">0x00 · 00000000 · '·'</div>
+  <div id="output-history"><div style="color:#555;text-align:center">No output yet.</div></div>
+</section>
+
+<section>
+  <h2>4. RAM (256 bytes)</h2>
+  <div class="ram-controls">
+    <label><input type="checkbox" id="ram-mnem" checked /> mnemonics</label>
+    <label><input type="checkbox" id="ram-only-modified" /> only modified</label>
+    <button id="ram-jump-pc" style="min-height:30px;padding:4px 10px;font-size:11px;flex:0 0 auto">→ PC</button>
+  </div>
+  <div id="ram-grid"></div>
+</section>
+
+<!-- Core scripts (no UI bloat) -->
+<script src="src/cpu.js"></script>
+<script src="src/assembler.js"></script>
+
+<script>
+(function() {
+  // ─────────── State ───────────
+  const cpu = new CPU();
+  const assembler = new Assembler(INSTRUCTIONS);
+  let originalRAM = new Uint8Array(256);
+  let outputHistory = [];
+  let lastOUT = null;
+  let runTimer = null;
+
+  const MNEMS = {
+    0x00:'NOP', 0x01:'LDA', 0x02:'ADD', 0x03:'SUB', 0x04:'STA', 0x05:'LDI',
+    0x06:'JMP', 0x07:'JC',  0x08:'JZ',  0x09:'AND', 0x0A:'OR',  0x0B:'XOR',
+    0x0C:'SHL', 0x0D:'SHR', 0x0E:'OUT', 0x0F:'HLT',
+    0x10:'PUSH',0x11:'POP', 0x12:'CALL',0x13:'RET', 0x14:'IN',  0x15:'RTI',
+    0x16:'JNZ', 0x17:'JNC', 0x18:'LDB', 0x19:'CMP',
+    0x1A:'LDA_IND', 0x1B:'STA_IND',
+  };
+
+  function hex2(n) { return (n & 0xFF).toString(16).toUpperCase().padStart(2,'0'); }
+  function bin8(n) { return (n & 0xFF).toString(2).padStart(8,'0'); }
+  function ascii(n) { return (n >= 32 && n < 127) ? `'${String.fromCharCode(n)}'` : '·'; }
+
+  // ─────────── Status / message helpers ───────────
+  function status(msg, kind) {
+    const el = document.getElementById('status-msg');
+    el.textContent = msg;
+    el.className = kind || '';
+  }
+
+  // ─────────── Render functions ───────────
+  function renderStatus() {
+    document.getElementById('s-pc').textContent = hex2(cpu.PC);
+    document.getElementById('s-a').textContent  = cpu.A;
+    document.getElementById('s-b').textContent  = cpu.B;
+    document.getElementById('s-sp').textContent = hex2(cpu.SP);
+    document.getElementById('s-ir').textContent = hex2(cpu.IR);
+    document.getElementById('s-t').textContent  = cpu.tState;
+    const cf = document.getElementById('s-cf');
+    const zf = document.getElementById('s-zf');
+    cf.textContent = cpu.CF; cf.className = 'val ' + (cpu.CF ? 'flag-on' : 'flag-off');
+    zf.textContent = cpu.ZF; zf.className = 'val ' + (cpu.ZF ? 'flag-on' : 'flag-off');
+  }
+
+  function renderOutput() {
+    document.getElementById('output-big').textContent = cpu.OUT;
+    document.getElementById('output-meta').textContent =
+      `0x${hex2(cpu.OUT)} · ${bin8(cpu.OUT)} · ${ascii(cpu.OUT)}`;
+
+    const hist = document.getElementById('output-history');
+    if (outputHistory.length === 0) {
+      hist.innerHTML = '<div style="color:#555;text-align:center">No output yet.</div>';
+    } else {
+      hist.innerHTML = outputHistory.map((v, i) =>
+        `<div>#${i+1}: <strong style="color:#ff8844">${v}</strong> · 0x${hex2(v)} · ${ascii(v)}</div>`
+      ).join('');
+      hist.scrollTop = hist.scrollHeight;
+    }
+  }
+
+  function renderRAM() {
+    const showMnem  = document.getElementById('ram-mnem').checked;
+    const onlyMod   = document.getElementById('ram-only-modified').checked;
+    const grid      = document.getElementById('ram-grid');
+
+    let html = '';
+    let any = false;
+    for (let i = 0; i < 256; i++) {
+      const v = cpu.RAM[i];
+      const orig = originalRAM[i];
+      const isMod = (v !== orig);
+      const isPC  = (i === cpu.PC);
+
+      if (onlyMod && !isMod && !isPC && v === 0) continue;
+
+      any = true;
+      const m = MNEMS[v];
+      const display = (showMnem && m !== undefined && v !== 0) ? m : String(v);
+
+      const cls = ['ram-row'];
+      if (isMod) cls.push('modified');
+      if (isPC)  cls.push('pc');
+
+      html += `<div class="${cls.join(' ')}">`;
+      html += `<span class="ram-addr">0x${hex2(i)}</span>`;
+      html += `<input class="ram-val" data-addr="${i}" value="${display}" inputmode="text" />`;
+      html += `<span class="ram-meta">0x${hex2(v)}</span>`;
+      if (isMod) html += `<span class="ram-was">was 0x${hex2(orig)}</span>`;
+      html += `</div>`;
+    }
+    if (!any) html = '<div style="color:#555;padding:10px;text-align:center">No bytes match the filter.</div>';
+    grid.innerHTML = html;
+
+    // Wire up cell edits
+    grid.querySelectorAll('.ram-val').forEach(input => {
+      input.addEventListener('change', e => {
+        const addr = parseInt(e.target.dataset.addr);
+        const raw = e.target.value.trim().toUpperCase();
+        let val = 0;
+        if (Object.values(MNEMS).includes(raw)) {
+          val = parseInt(Object.keys(MNEMS).find(k => MNEMS[k] === raw));
+        } else if (raw.startsWith('0X')) {
+          val = parseInt(raw, 16) & 0xFF;
+        } else if (/^\d+$/.test(raw)) {
+          val = parseInt(raw) & 0xFF;
+        } else if (/^[0-9A-F]{1,2}$/.test(raw)) {
+          val = parseInt(raw, 16) & 0xFF;
+        }
+        cpu.RAM[addr] = val;
+        renderRAM();
+      });
+    });
+  }
+
+  function renderAll() {
+    renderStatus();
+    renderOutput();
+    renderRAM();
+  }
+
+  // ─────────── Run / step engine ───────────
+  function captureOutputIfChanged() {
+    if (lastOUT !== cpu.OUT) {
+      // OUT register changed since last check — record the new value.
+      // (But not on the very first call when lastOUT is null and OUT happens to be 0.)
+      if (lastOUT !== null || cpu.OUT !== 0) {
+        outputHistory.push(cpu.OUT);
+        if (outputHistory.length > 100) outputHistory.shift();
+      }
+      lastOUT = cpu.OUT;
+    }
+  }
+
+  function doStep(n) {
+    n = n || 1;
+    for (let i = 0; i < n; i++) {
+      if (cpu.halted) break;
+      cpu.step();
+      captureOutputIfChanged();
+    }
+    renderAll();
+  }
+
+  function doRun() {
+    if (runTimer) return;
+    if (cpu.halted) { status('CPU is halted. Press Reset to start over.', 'error'); return; }
+    status('Running...', '');
+    document.getElementById('btn-run').textContent = 'Running';
+    runTimer = setInterval(() => {
+      // Run 50 steps per tick — fast enough to feel instant on phones, slow enough to update UI.
+      for (let i = 0; i < 50; i++) {
+        if (cpu.halted) break;
+        cpu.step();
+        captureOutputIfChanged();
+      }
+      renderAll();
+      if (cpu.halted) {
+        clearInterval(runTimer);
+        runTimer = null;
+        document.getElementById('btn-run').textContent = 'Run';
+        status('Halted at PC=0x' + hex2(cpu.PC) + '. Cycles: ' + cpu.clockCycles, 'success');
+      }
+    }, 30);
+  }
+
+  function doPause() {
+    if (runTimer) {
+      clearInterval(runTimer);
+      runTimer = null;
+      document.getElementById('btn-run').textContent = 'Run';
+      status('Paused at PC=0x' + hex2(cpu.PC), '');
+    }
+  }
+
+  function doReset() {
+    doPause();
+    const savedRAM = new Uint8Array(originalRAM);  // remember what was loaded
+    cpu.reset();
+    cpu.RAM.set(savedRAM);                          // restore the assembled program
+    outputHistory = [];
+    lastOUT = null;
+    status('Reset. PC=0x00. RAM restored to last assembled program.', '');
+    renderAll();
+  }
+
+  function doAssemble(thenRun) {
+    doPause();
+    const source = document.getElementById('editor').value;
+    const bytes = assembler.assemble(source);
+    if (assembler.errors.length) {
+      status('Errors:\n' + assembler.errors.join('\n'), 'error');
+      return false;
+    }
+    cpu.reset();
+    cpu.loadProgram(bytes);
+    originalRAM = new Uint8Array(bytes);
+    outputHistory = [];
+    lastOUT = null;
+    const warn = assembler.warnings.length ? '  (' + assembler.warnings.length + ' warnings)' : '';
+    status(`Assembled ${assembler.listing.length} lines.${warn} Ready to run.`, 'success');
+    renderAll();
+    if (thenRun) doRun();
+    return true;
+  }
+
+  // ─────────── Wire up controls ───────────
+  document.getElementById('btn-assemble').addEventListener('click', () => doAssemble(false));
+  document.getElementById('btn-run').addEventListener('click', () => {
+    if (runTimer) { doPause(); return; }
+    if (cpu.clockCycles === 0) {
+      // Fresh run — assemble first if there's source
+      if (document.getElementById('editor').value.trim()) {
+        if (!doAssemble(true)) return;
+      } else {
+        doRun();
+      }
+    } else {
+      doRun();
+    }
+  });
+  document.getElementById('btn-step').addEventListener('click', () => doStep(1));
+  document.getElementById('btn-step10').addEventListener('click', () => doStep(10));
+  document.getElementById('btn-pause').addEventListener('click', doPause);
+  document.getElementById('btn-reset').addEventListener('click', doReset);
+
+  document.getElementById('ram-mnem').addEventListener('change', renderRAM);
+  document.getElementById('ram-only-modified').addEventListener('change', renderRAM);
+  document.getElementById('ram-jump-pc').addEventListener('click', () => {
+    const grid = document.getElementById('ram-grid');
+    const pcRow = grid.querySelector('.ram-row.pc');
+    if (pcRow) pcRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+
+  // ─────────── Examples dropdown ───────────
+  const sel = document.getElementById('example-select');
+  if (window.EXAMPLE_PROGRAMS) {
+    Object.keys(EXAMPLE_PROGRAMS).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+  }
+  sel.addEventListener('change', () => {
+    const name = sel.value;
+    if (!name) return;
+    const prog = EXAMPLE_PROGRAMS[name];
+    if (!prog) return;
+    document.getElementById('editor').value = prog.source;
+    status(prog.description || '', '');
+  });
+
+  // ─────────── Initial state ───────────
+  document.getElementById('editor').value =
+`; Tap "Assemble" then "Run".
+; Or pick an example from the dropdown above.
+
+        LDI 'H'
+        OUT
+        LDI 'i'
+        OUT
+        HLT`;
+  renderAll();
+})();
+</script>
+
+</body>
+</html>

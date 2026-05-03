@@ -427,6 +427,12 @@ kbd {
 .sig-tag.out-tag { background: #002a10; border-color: #005520; color: var(--bit-high); }
 .sig-tag.in-tag  { background: #00102a; border-color: #002255; color: var(--text-code); }
 
+/* Mode signals (ALU etc.) — always-visible, lit up when active */
+.sig-tag.mode-tag { background: #15080a; border-color: #3a0a14; color: #553036; font-size: 7px; }
+.sig-tag.sig-off  { background: #0a0a12; border-color: #1a1a26; color: #3a3a48; opacity: 0.55; font-size: 7px; }
+.sig-tag.mode-tag.sig-on { background: #3a0010; border-color: #aa2030; color: #ff6688; opacity: 1; font-weight: 700; box-shadow: 0 0 6px rgba(255,60,100,0.35); }
+.comp-sigs-alu { flex-wrap: wrap; gap: 2px; max-width: 100%; }
+
 /* Component color coding */
 .comp-pc    { background: var(--comp-pc);   border-color: #1a408a; }
 .comp-mar   { background: var(--comp-mar);  border-color: #1a4a28; }
