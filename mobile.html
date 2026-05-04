@@ -203,11 +203,18 @@
 <h1>CPU Mobile — Program · Run · Watch</h1>
 
 <section>
-  <h2>1. Pick or write a program</h2>
-  <select id="example-select">
-    <option value="">— pick an example —</option>
-  </select>
+  <h2>1. Write your own program — or pick an example to start from</h2>
+  <div class="row" style="margin-bottom:6px">
+    <select id="example-select" style="flex:1">
+      <option value="">— load an example —</option>
+    </select>
+    <button id="btn-clear" class="btn-warn" style="flex:0 0 auto;padding:10px 14px" title="Clear the editor and start fresh">Clear</button>
+  </div>
+  <div id="editor-hint" style="color:#888;font-size:11px;margin-bottom:4px">
+    ✏️ Tap below to write your own assembly. Then tap <strong>Run</strong> to assemble + execute.
+  </div>
   <textarea id="editor" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+  <div id="editor-stale" style="color:#aa8855;font-size:11px;margin-top:4px;display:none">⚠️ unsaved edits — Run will re-assemble first</div>
 </section>
 
 <section>
@@ -459,6 +466,7 @@
     const warn = assembler.warnings.length ? '  (' + assembler.warnings.length + ' warnings)' : '';
     status(`Assembled ${assembler.listing.length} lines.${warn} Ready to run.`, 'success');
     renderAll();
+    if (typeof updateStaleHint === 'function') updateStaleHint();
     if (thenRun) doRun();
     return true;
   }
@@ -518,8 +526,40 @@
     if (!name) return;
     const prog = EXAMPLE_PROGRAMS[name];
     if (!prog) return;
+    if (document.getElementById('editor').value.trim() &&
+        document.getElementById('editor').value !== lastAssembledSource &&
+        !confirm('Replace your current program with the "' + name + '" example?\n\nYour current edits will be lost.')) {
+      sel.value = '';   // user said no — reset dropdown so it doesn't look like the example loaded
+      return;
+    }
     document.getElementById('editor').value = prog.source;
     status(prog.description || '', '');
+    updateStaleHint();
+  });
+
+  // ─────────── Clear button ───────────
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    if (document.getElementById('editor').value.trim() &&
+        !confirm('Clear the editor? Your current program will be lost.')) return;
+    document.getElementById('editor').value = '';
+    sel.value = '';
+    status('Editor cleared. Write your program below.', '');
+    updateStaleHint();
+    // Auto-focus the empty editor so the keyboard pops up on phones
+    document.getElementById('editor').focus();
+  });
+
+  // ─────────── Stale-source indicator ───────────
+  function updateStaleHint() {
+    const ed   = document.getElementById('editor');
+    const hint = document.getElementById('editor-stale');
+    const stale = ed.value.trim() && ed.value !== lastAssembledSource;
+    hint.style.display = stale ? 'block' : 'none';
+  }
+  document.getElementById('editor').addEventListener('input', () => {
+    // When the user types, clear the dropdown so it doesn't look like an example is "loaded"
+    if (sel.value !== '') sel.value = '';
+    updateStaleHint();
   });
 
   // ─────────── Initial state ───────────
