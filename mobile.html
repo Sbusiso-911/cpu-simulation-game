@@ -271,6 +271,31 @@
   <div id="ram-grid"></div>
 </section>
 
+<section>
+  <h2>5. Microcode reference <button id="micro-toggle" style="float:right;min-height:24px;padding:2px 10px;font-size:11px">show</button></h2>
+  <div id="micro-body" style="display:none">
+    <div style="color:#888;font-size:11px;margin-bottom:6px">
+      Universal fetch (runs at start of every instruction):
+      <br><span style="color:#ffaa00;font-family:monospace">T0: CO|MI</span> — PC → MAR
+      <br><span style="color:#ffaa00;font-family:monospace">T1: RO|II|CE</span> — RAM[PC] → IR; PC++
+      <br>Below: per-instruction microcode for T2 onwards.
+    </div>
+    <input id="micro-search" type="search" placeholder="Filter: LDA, ADD, jump, stack..." autocapitalize="off" autocorrect="off" style="width:100%;background:#1a1a1a;color:#ffcc55;border:1px solid #333;border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px;margin-bottom:6px;-webkit-appearance:none;box-sizing:border-box" />
+    <div id="micro-grid" style="font-family:monospace;font-size:11px;color:#aaa"></div>
+  </div>
+</section>
+
+<section>
+  <h2>6. Settings</h2>
+  <div class="row">
+    <button id="btn-clear-storage" class="btn-danger" style="font-size:12px">Clear saved data</button>
+    <button id="btn-export"        style="font-size:12px">Export RAM as JSON</button>
+  </div>
+  <div style="color:#888;font-size:11px;margin-top:6px;line-height:1.5">
+    💾 RAM, editor, and history are auto-saved to your browser as you work — close the page or switch tabs and it's all here when you come back. "Clear saved data" wipes the auto-save (use this to start fresh).
+  </div>
+</section>
+
 <!-- Core scripts (no UI bloat) -->
 <script src="src/cpu.js"></script>
 <script src="src/assembler.js"></script>
@@ -679,10 +704,197 @@
     // When the user types, clear the dropdown so it doesn't look like an example is "loaded"
     if (sel.value !== '') sel.value = '';
     updateStaleHint();
+    scheduleSave();
+  });
+
+  // ─────────── Microcode reference ───────────
+  // Plain-language hints for common control-signal combinations.
+  // If a step's signals match one of these, we show the hint instead of just the bit names.
+  const SIG_HINTS = {
+    'CO|MI':            'PC → MAR (point at next byte)',
+    'RO|II|CE':         'RAM[PC] → IR; PC++ (fetch opcode)',
+    'CO|MI|CE':         'PC → MAR; PC++ (point + advance)',
+    'RO|MI|CE':         'RAM[PC] → MAR; PC++ (operand → addr)',
+    'RO|MI':            'RAM[MAR] → MAR (dereference one level)',
+    'RO|AI':            'RAM[MAR] → A (load A from memory)',
+    'RO|BI':            'RAM[MAR] → B (load B from memory)',
+    'RO|AI|CE':         'RAM[PC] → A; PC++ (immediate → A)',
+    'RO|BI|CE':         'RAM[PC] → B; PC++ (immediate → B)',
+    'AO|RI':            'A → RAM[MAR] (store A to memory)',
+    'AO|OI':            'A → OUTPUT (display A)',
+    'EO|AI|FI':         'ALU(A+B) → A; update flags',
+    'EO|AI|SU|FI':      'ALU(A−B) → A; update flags',
+    'EO|AI|ANDI|FI':    'ALU(A AND B) → A; update flags',
+    'EO|AI|ORI|FI':     'ALU(A OR B) → A; update flags',
+    'EO|AI|XORI|FI':    'ALU(A XOR B) → A; update flags',
+    'EO|AI|SHLI|FI':    'A << 1 → A; update flags',
+    'EO|AI|SHRI|FI':    'A >> 1 → A; update flags',
+    'EO|SU|FI':         'ALU(A−B) → flags only (compare; A unchanged)',
+    'RO|J':             'RAM[MAR] → PC (jump to address)',
+    'BO|J':             'B → PC (jump to B)',
+    'CO|RI':            'PC → RAM[MAR] (push current PC)',
+    'CE':               'PC++ (advance past operand without using it)',
+    'SPO|MI':           'SP → MAR (point at top of stack)',
+    'SPD':              'SP-- (grow stack)',
+    'SPUP':             'SP++ (shrink stack)',
+    'INO|AI':           'INPUT → A (read input register)',
+    'HLT':              'halt the clock',
+  };
+
+  function decodeSignals(cw) {
+    if (cw === 0 || cw === undefined || cw === null) return [];
+    const names = [];
+    for (const [name, mask] of Object.entries(window.CS || {})) {
+      if (cw & mask) names.push(name);
+    }
+    return names;
+  }
+
+  function explainStep(cw) {
+    const names = decodeSignals(cw);
+    if (names.length === 0) return { sigs: '—', hint: '(no signals)' };
+    const key = names.join('|');
+    const hint = SIG_HINTS[key] || '(see signals)';
+    return { sigs: key, hint };
+  }
+
+  function renderMicrocode(filter) {
+    const grid = document.getElementById('micro-grid');
+    if (!grid || !window.INSTRUCTIONS) return;
+    const f = (filter || '').trim().toLowerCase();
+
+    let html = '';
+    const entries = Object.entries(window.INSTRUCTIONS).sort((a,b) => a[1].opcode - b[1].opcode);
+
+    for (const [name, instr] of entries) {
+      // Filter: name OR description must match
+      if (f && !name.toLowerCase().includes(f) && !(instr.description || '').toLowerCase().includes(f)) continue;
+
+      // Pick microcode array. For conditional jumps, prefer the "taken" branch as the canonical view.
+      const mc = instr.microcode || instr.microcode_zf1 || instr.microcode_cf1 || instr.microcode_zf0 || instr.microcode_cf0 || [];
+
+      html += `<div style="background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:8px;margin-bottom:6px">`;
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:#ffaa00;font-weight:bold;font-size:13px">${name}</span><span style="color:#666;font-size:11px">opcode 0x${instr.opcode.toString(16).toUpperCase().padStart(2,'0')} · ${instr.bytes||1} byte${(instr.bytes||1)===1?'':'s'}</span></div>`;
+      if (instr.description) {
+        html += `<div style="color:#aaa;font-size:11px;margin-bottom:6px;font-family:inherit">${instr.description}</div>`;
+      }
+      html += `<table style="width:100%;border-collapse:collapse;font-size:10px"><tr style="color:#666"><th style="text-align:left;padding:2px 4px;border-bottom:1px solid #2a2a2a;width:30px">T</th><th style="text-align:left;padding:2px 4px;border-bottom:1px solid #2a2a2a">signals</th><th style="text-align:left;padding:2px 4px;border-bottom:1px solid #2a2a2a">meaning</th></tr>`;
+      for (let t = 0; t < mc.length; t++) {
+        const ex = explainStep(mc[t]);
+        const isFetch = (t < 2);
+        const tColor = isFetch ? '#666' : '#5a8acc';
+        const sigColor = isFetch ? '#888' : '#ffcc55';
+        html += `<tr><td style="padding:2px 4px;color:${tColor}">T${t}</td><td style="padding:2px 4px;color:${sigColor};font-family:monospace">${ex.sigs}</td><td style="padding:2px 4px;color:#aaa">${ex.hint}</td></tr>`;
+      }
+      // Show conditional-jump variants as a footnote
+      if (instr.microcode_cf0 || instr.microcode_zf0) {
+        html += `<tr><td colspan="3" style="padding:6px 4px 0;color:#aa8855;font-size:10px;border-top:1px dashed #2a2a2a">Conditional: J fires only if the right flag is set; otherwise the operand byte is skipped.</td></tr>`;
+      }
+      html += `</table></div>`;
+    }
+    if (!html) html = '<div style="color:#666;text-align:center;padding:16px">No instructions match.</div>';
+    grid.innerHTML = html;
+  }
+
+  document.getElementById('micro-toggle').addEventListener('click', () => {
+    const body = document.getElementById('micro-body');
+    const btn  = document.getElementById('micro-toggle');
+    const showing = body.style.display !== 'none';
+    if (showing) {
+      body.style.display = 'none';
+      btn.textContent = 'show';
+    } else {
+      body.style.display = 'block';
+      btn.textContent = 'hide';
+      renderMicrocode(document.getElementById('micro-search').value);
+    }
+  });
+  document.getElementById('micro-search').addEventListener('input', e => renderMicrocode(e.target.value));
+
+  // ─────────── Auto-save (localStorage) ───────────
+  const STATE_KEY = 'cpu-mobile-state-v1';
+  let saveTimer = null;
+
+  function saveStateNow() {
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify({
+        ram:                 Array.from(cpu.RAM),
+        originalRAM:         Array.from(originalRAM),
+        editor:              document.getElementById('editor').value,
+        lastAssembledSource,
+        ramHandEdited,
+        ramHandEditedDirty,
+        outputHistory,
+        speed:               document.getElementById('speed-select').value,
+        showMnem:            document.getElementById('ram-mnem').checked,
+        onlyModified:        document.getElementById('ram-only-modified').checked,
+      }));
+    } catch (e) { /* quota exceeded — ignore */ }
+  }
+
+  function scheduleSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveStateNow, 400);
+  }
+
+  function loadStateOnInit() {
+    try {
+      const raw = localStorage.getItem(STATE_KEY);
+      if (!raw) return false;
+      const s = JSON.parse(raw);
+      if (s.ram && s.ram.length === 256) cpu.RAM.set(s.ram);
+      if (s.originalRAM && s.originalRAM.length === 256) originalRAM = new Uint8Array(s.originalRAM);
+      if (typeof s.editor === 'string') document.getElementById('editor').value = s.editor;
+      if (typeof s.lastAssembledSource === 'string') lastAssembledSource = s.lastAssembledSource;
+      ramHandEdited = !!s.ramHandEdited;
+      ramHandEditedDirty = !!s.ramHandEditedDirty;
+      if (Array.isArray(s.outputHistory)) outputHistory = s.outputHistory;
+      if (s.speed) document.getElementById('speed-select').value = s.speed;
+      if (typeof s.showMnem === 'boolean') document.getElementById('ram-mnem').checked = s.showMnem;
+      if (typeof s.onlyModified === 'boolean') document.getElementById('ram-only-modified').checked = s.onlyModified;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Wire up auto-save triggers — debounced so we don't write on every keystroke.
+  document.getElementById('editor').addEventListener('input', scheduleSave);
+  document.getElementById('speed-select').addEventListener('change', scheduleSave);
+  document.getElementById('ram-mnem').addEventListener('change', scheduleSave);
+  document.getElementById('ram-only-modified').addEventListener('change', scheduleSave);
+
+  // Save when the page is being closed/hidden — best-effort.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveStateNow(); });
+  window.addEventListener('beforeunload', saveStateNow);
+
+  // Wrap mutating operations so they trigger saves.
+  const _origRenderRAM = renderRAM;
+  renderRAM = function() { _origRenderRAM(); scheduleSave(); };
+
+  document.getElementById('btn-clear-storage').addEventListener('click', () => {
+    if (!confirm('Wipe all saved data (RAM contents, editor, history)? This cannot be undone.')) return;
+    try { localStorage.removeItem(STATE_KEY); } catch (e) {}
+    location.reload();
+  });
+
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const data = {
+      ram:    Array.from(cpu.RAM),
+      editor: document.getElementById('editor').value,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cpu-ram-' + Date.now() + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   });
 
   // ─────────── Initial state ───────────
-  document.getElementById('editor').value =
+  const restored = loadStateOnInit();
+  if (!restored) {
+    document.getElementById('editor').value =
 `; Tap "Assemble" then "Run".
 ; Or pick an example from the dropdown above.
 
@@ -691,6 +903,9 @@
         LDI 'i'
         OUT
         HLT`;
+  }
+  if (typeof updateStaleHint === 'function') updateStaleHint();
+  if (typeof updateModeBadge === 'function') updateModeBadge();
   renderAll();
 })();
 </script>
