@@ -265,6 +265,7 @@
   let outputHistory = [];
   let lastOUT = null;
   let runTimer = null;
+  let lastAssembledSource = '';   // tracked so we know when the editor diverges from what's in RAM
 
   const MNEMS = {
     0x00:'NOP', 0x01:'LDA', 0x02:'ADD', 0x03:'SUB', 0x04:'STA', 0x05:'LDI',
@@ -454,6 +455,7 @@
     originalRAM = new Uint8Array(bytes);
     outputHistory = [];
     lastOUT = null;
+    lastAssembledSource = source;
     const warn = assembler.warnings.length ? '  (' + assembler.warnings.length + ' warnings)' : '';
     status(`Assembled ${assembler.listing.length} lines.${warn} Ready to run.`, 'success');
     renderAll();
@@ -461,23 +463,35 @@
     return true;
   }
 
+  // Returns true if the editor source differs from what was last assembled.
+  function sourceIsStale() {
+    return document.getElementById('editor').value !== lastAssembledSource;
+  }
+
+  // Used by Run/Step to make sure we're running the user's CURRENT code, not a stale build.
+  function ensureFresh() {
+    if (sourceIsStale() || cpu.halted || lastAssembledSource === '') {
+      return doAssemble(false);
+    }
+    return true;
+  }
+
   // ─────────── Wire up controls ───────────
   document.getElementById('btn-assemble').addEventListener('click', () => doAssemble(false));
   document.getElementById('btn-run').addEventListener('click', () => {
     if (runTimer) { doPause(); return; }
-    if (cpu.clockCycles === 0) {
-      // Fresh run — assemble first if there's source
-      if (document.getElementById('editor').value.trim()) {
-        if (!doAssemble(true)) return;
-      } else {
-        doRun();
-      }
-    } else {
-      doRun();
-    }
+    // If editor differs from last build, or CPU is halted, or never built — re-assemble.
+    if (!ensureFresh()) return;
+    doRun();
   });
-  document.getElementById('btn-step').addEventListener('click', () => doStep(1));
-  document.getElementById('btn-step10').addEventListener('click', () => doStep(10));
+  document.getElementById('btn-step').addEventListener('click', () => {
+    if (!ensureFresh()) return;
+    doStep(1);
+  });
+  document.getElementById('btn-step10').addEventListener('click', () => {
+    if (!ensureFresh()) return;
+    doStep(10);
+  });
   document.getElementById('btn-pause').addEventListener('click', doPause);
   document.getElementById('btn-reset').addEventListener('click', doReset);
 
