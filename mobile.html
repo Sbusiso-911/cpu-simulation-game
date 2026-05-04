@@ -229,6 +229,16 @@
     <button class="btn-warn" id="btn-pause">Pause</button>
     <button class="btn-danger" id="btn-reset">Reset</button>
   </div>
+  <div class="row" style="align-items:center;gap:8px">
+    <label for="speed-select" style="color:#888;font-size:11px;min-width:50px">Speed:</label>
+    <select id="speed-select" style="flex:1">
+      <option value="slow">Slow — 1 step / 100ms (watch each step)</option>
+      <option value="walk">Walk — 100 steps / 30ms</option>
+      <option value="normal" selected>Normal — 1 000 / 30ms</option>
+      <option value="fast">Fast — 10 000 / 16ms</option>
+      <option value="max">Max — as fast as the phone can go</option>
+    </select>
+  </div>
   <div id="status-msg">Ready.</div>
   <div class="status">
     <div><div class="lbl">PC</div><div class="val" id="s-pc">00</div></div>
@@ -407,26 +417,57 @@
     renderAll();
   }
 
+  // Speed presets: how many CPU steps per tick, and how often to tick (ms).
+  // Heavy RAM render is skipped during runs unless the speed is "slow"; we
+  // still render the cheap status+output every tick so you see live feedback.
+  const SPEED_PRESETS = {
+    slow:   { steps: 1,     interval: 100, fullRender: true  },
+    walk:   { steps: 100,   interval: 30,  fullRender: false },
+    normal: { steps: 1000,  interval: 30,  fullRender: false },
+    fast:   { steps: 10000, interval: 16,  fullRender: false },
+    max:    { steps: 50000, interval: 0,   fullRender: false },
+  };
+
+  function currentSpeed() {
+    const v = document.getElementById('speed-select').value;
+    return SPEED_PRESETS[v] || SPEED_PRESETS.normal;
+  }
+
+  // Cheap render — used during runs to avoid rebuilding 256 RAM rows every tick.
+  function renderLight() {
+    renderStatus();
+    renderOutput();
+  }
+
   function doRun() {
     if (runTimer) return;
     if (cpu.halted) { status('CPU is halted. Press Reset to start over.', 'error'); return; }
-    status('Running...', '');
-    document.getElementById('btn-run').textContent = 'Running';
+    const sp = currentSpeed();
+    const startCycles = cpu.clockCycles;
+    const startTime   = performance.now();
+    status('Running... (' + Object.entries(SPEED_PRESETS).find(([,v]) => v === sp)[0] + ')', '');
+    document.getElementById('btn-run').textContent = 'Running — tap to pause';
+
     runTimer = setInterval(() => {
-      // Run 50 steps per tick — fast enough to feel instant on phones, slow enough to update UI.
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < sp.steps; i++) {
         if (cpu.halted) break;
         cpu.step();
         captureOutputIfChanged();
       }
-      renderAll();
+      // Only render the heavy RAM grid in "slow" mode (where the user wants to see each byte).
+      if (sp.fullRender) renderAll(); else renderLight();
+
       if (cpu.halted) {
         clearInterval(runTimer);
         runTimer = null;
         document.getElementById('btn-run').textContent = 'Run';
-        status('Halted at PC=0x' + hex2(cpu.PC) + '. Cycles: ' + cpu.clockCycles, 'success');
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        const cycles  = cpu.clockCycles - startCycles;
+        const rate    = elapsed > 0 ? Math.round(cycles / elapsed) : 0;
+        renderAll();   // do the full render once at halt so RAM is up to date
+        status(`Halted at PC=0x${hex2(cpu.PC)}. Ran ${cycles} cycles in ${elapsed}s (${rate.toLocaleString()} cy/s).`, 'success');
       }
-    }, 30);
+    }, sp.interval);
   }
 
   function doPause() {
@@ -434,6 +475,7 @@
       clearInterval(runTimer);
       runTimer = null;
       document.getElementById('btn-run').textContent = 'Run';
+      renderAll();   // refresh RAM grid that was skipped during the run
       status('Paused at PC=0x' + hex2(cpu.PC), '');
     }
   }
@@ -509,6 +551,15 @@
     const grid = document.getElementById('ram-grid');
     const pcRow = grid.querySelector('.ram-row.pc');
     if (pcRow) pcRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+
+  // Restart the run loop when speed changes mid-run, so the new rate takes effect immediately.
+  document.getElementById('speed-select').addEventListener('change', () => {
+    if (runTimer) {
+      clearInterval(runTimer);
+      runTimer = null;
+      doRun();
+    }
   });
 
   // ─────────── Examples dropdown ───────────
