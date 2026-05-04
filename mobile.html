@@ -265,7 +265,8 @@
   <div class="ram-controls">
     <label><input type="checkbox" id="ram-mnem" checked /> mnemonics</label>
     <label><input type="checkbox" id="ram-only-modified" /> only modified</label>
-    <button id="ram-jump-pc" style="min-height:30px;padding:4px 10px;font-size:11px;flex:0 0 auto">→ PC</button>
+    <button id="ram-jump-pc"  style="min-height:30px;padding:4px 10px;font-size:11px;flex:0 0 auto">→ PC</button>
+    <button id="ram-snapshot" style="min-height:30px;padding:4px 10px;font-size:11px;flex:0 0 auto;background:#2a4a6a;color:#fff;border:1px solid #3a5a7a" title="Save current RAM as the new ‘original’ — Reset will restore to this state and modified-highlights will clear">📸 snapshot</button>
   </div>
   <div id="ram-grid"></div>
 </section>
@@ -285,6 +286,7 @@
   let runTimer = null;
   let lastAssembledSource = '';   // tracked so we know when the editor diverges from what's in RAM
   let ramHandEdited       = false; // true if user typed values directly into RAM cells
+  let ramHandEditedDirty  = false; // true if user has edited cells since the last snapshot
 
   const MNEMS = {
     0x00:'NOP', 0x01:'LDA', 0x02:'ADD', 0x03:'SUB', 0x04:'STA', 0x05:'LDI',
@@ -386,7 +388,8 @@
         }
         cpu.RAM[addr] = val;
         // Mark RAM as hand-edited — Run/Step will NOT auto-assemble and overwrite this edit.
-        ramHandEdited = true;
+        ramHandEdited      = true;
+        ramHandEditedDirty = true;   // not yet snapshotted; next Run will snapshot
         if (typeof updateModeBadge === 'function') updateModeBadge();
         renderRAM();
       });
@@ -487,21 +490,14 @@
 
   function doReset() {
     doPause();
+    cpu.reset();
+    cpu.RAM.set(originalRAM);  // Restore the snapshot — the user's typed program in hand-edit mode,
+                                // or the assembled program in assembly mode.
+    outputHistory = [];
+    lastOUT = null;
     if (ramHandEdited) {
-      // In hand-edit mode, Reset rewinds PC/registers but KEEPS the user's RAM
-      // (otherwise they'd lose work they manually typed in).
-      const ram = new Uint8Array(cpu.RAM);
-      cpu.reset();
-      cpu.RAM.set(ram);
-      outputHistory = [];
-      lastOUT = null;
-      status('Reset. PC=0x00. RAM (hand-edited) preserved.', '');
+      status('Reset. PC=0x00. RAM restored to your last snapshot.', '');
     } else {
-      const savedRAM = new Uint8Array(originalRAM);  // last assembled program
-      cpu.reset();
-      cpu.RAM.set(savedRAM);
-      outputHistory = [];
-      lastOUT = null;
       status('Reset. PC=0x00. RAM restored to last assembled program.', '');
     }
     renderAll();
@@ -556,12 +552,20 @@
   // Same if the editor is empty — they're clearly running from RAM directly.
   function ensureFresh() {
     if (ramHandEdited) {
-      // User is in "hand-edited RAM" mode. If CPU is halted, reset PC/registers
-      // but keep their RAM intact so they can re-run.
+      // User is in "hand-edited RAM" mode.
+      //
+      // If they've edited cells since the last snapshot, take a fresh snapshot
+      // NOW (before execution mutates RAM). This becomes the baseline that the
+      // yellow "modified" highlight compares against and that Reset restores.
+      if (ramHandEditedDirty) {
+        originalRAM = new Uint8Array(cpu.RAM);
+        ramHandEditedDirty = false;
+      }
+      // If CPU is halted, rewind PC/registers but restore RAM from the snapshot
+      // so the next run starts from the user's typed program (not the post-run state).
       if (cpu.halted) {
-        const ram = new Uint8Array(cpu.RAM);
         cpu.reset();
-        cpu.RAM.set(ram);
+        cpu.RAM.set(originalRAM);
         outputHistory = [];
         lastOUT = null;
         renderAll();
@@ -604,6 +608,17 @@
     const grid = document.getElementById('ram-grid');
     const pcRow = grid.querySelector('.ram-row.pc');
     if (pcRow) pcRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+
+  // Manual snapshot button — declares "this is my known-good state". Clears all
+  // yellow modified-byte highlighting and makes Reset return to this exact RAM.
+  document.getElementById('ram-snapshot').addEventListener('click', () => {
+    originalRAM = new Uint8Array(cpu.RAM);
+    ramHandEditedDirty = false;
+    status('Snapshot taken. ' + (ramHandEdited
+      ? 'Reset will restore RAM to this state. Highlights cleared.'
+      : 'Reset will restore to this state.'), 'success');
+    renderRAM();
   });
 
   // Restart the run loop when speed changes mid-run, so the new rate takes effect immediately.
