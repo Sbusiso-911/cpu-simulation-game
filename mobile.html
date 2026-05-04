@@ -239,6 +239,7 @@
       <option value="max">Max — as fast as the phone can go</option>
     </select>
   </div>
+  <div id="mode-badge" style="display:none;padding:6px 10px;border-radius:4px;font-size:11px;margin-bottom:6px;text-align:center;font-weight:bold"></div>
   <div id="status-msg">Ready.</div>
   <div class="status">
     <div><div class="lbl">PC</div><div class="val" id="s-pc">00</div></div>
@@ -283,6 +284,7 @@
   let lastOUT = null;
   let runTimer = null;
   let lastAssembledSource = '';   // tracked so we know when the editor diverges from what's in RAM
+  let ramHandEdited       = false; // true if user typed values directly into RAM cells
 
   const MNEMS = {
     0x00:'NOP', 0x01:'LDA', 0x02:'ADD', 0x03:'SUB', 0x04:'STA', 0x05:'LDI',
@@ -383,6 +385,9 @@
           val = parseInt(raw, 16) & 0xFF;
         }
         cpu.RAM[addr] = val;
+        // Mark RAM as hand-edited — Run/Step will NOT auto-assemble and overwrite this edit.
+        ramHandEdited = true;
+        if (typeof updateModeBadge === 'function') updateModeBadge();
         renderRAM();
       });
     });
@@ -482,12 +487,23 @@
 
   function doReset() {
     doPause();
-    const savedRAM = new Uint8Array(originalRAM);  // remember what was loaded
-    cpu.reset();
-    cpu.RAM.set(savedRAM);                          // restore the assembled program
-    outputHistory = [];
-    lastOUT = null;
-    status('Reset. PC=0x00. RAM restored to last assembled program.', '');
+    if (ramHandEdited) {
+      // In hand-edit mode, Reset rewinds PC/registers but KEEPS the user's RAM
+      // (otherwise they'd lose work they manually typed in).
+      const ram = new Uint8Array(cpu.RAM);
+      cpu.reset();
+      cpu.RAM.set(ram);
+      outputHistory = [];
+      lastOUT = null;
+      status('Reset. PC=0x00. RAM (hand-edited) preserved.', '');
+    } else {
+      const savedRAM = new Uint8Array(originalRAM);  // last assembled program
+      cpu.reset();
+      cpu.RAM.set(savedRAM);
+      outputHistory = [];
+      lastOUT = null;
+      status('Reset. PC=0x00. RAM restored to last assembled program.', '');
+    }
     renderAll();
   }
 
@@ -505,12 +521,28 @@
     outputHistory = [];
     lastOUT = null;
     lastAssembledSource = source;
+    ramHandEdited = false;   // Just assembled fresh — RAM matches the source again.
     const warn = assembler.warnings.length ? '  (' + assembler.warnings.length + ' warnings)' : '';
     status(`Assembled ${assembler.listing.length} lines.${warn} Ready to run.`, 'success');
     renderAll();
     if (typeof updateStaleHint === 'function') updateStaleHint();
+    if (typeof updateModeBadge === 'function') updateModeBadge();
     if (thenRun) doRun();
     return true;
+  }
+
+  // Visual indicator: which mode is active (assembly vs hand-edited RAM)?
+  function updateModeBadge() {
+    const el = document.getElementById('mode-badge');
+    if (!el) return;
+    if (ramHandEdited) {
+      el.textContent = '🛠 HAND-EDIT MODE — Run uses RAM as-is, ignores the editor';
+      el.style.display = 'block';
+      el.style.background = '#3a2a10';
+      el.style.color = '#ffcc55';
+    } else {
+      el.style.display = 'none';
+    }
   }
 
   // Returns true if the editor source differs from what was last assembled.
@@ -519,7 +551,28 @@
   }
 
   // Used by Run/Step to make sure we're running the user's CURRENT code, not a stale build.
+  // Special case: if the user has hand-edited RAM directly, we DO NOT auto-assemble
+  // (that would wipe their RAM edits and replace them with whatever's in the textarea).
+  // Same if the editor is empty — they're clearly running from RAM directly.
   function ensureFresh() {
+    if (ramHandEdited) {
+      // User is in "hand-edited RAM" mode. If CPU is halted, reset PC/registers
+      // but keep their RAM intact so they can re-run.
+      if (cpu.halted) {
+        const ram = new Uint8Array(cpu.RAM);
+        cpu.reset();
+        cpu.RAM.set(ram);
+        outputHistory = [];
+        lastOUT = null;
+        renderAll();
+      }
+      return true;
+    }
+    const source = document.getElementById('editor').value.trim();
+    if (source === '') {
+      // Empty editor + no hand edits = nothing to do. Run with whatever's in RAM (likely zeros).
+      return true;
+    }
     if (sourceIsStale() || cpu.halted || lastAssembledSource === '') {
       return doAssemble(false);
     }
