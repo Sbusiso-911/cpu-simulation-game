@@ -1874,7 +1874,7 @@ function bbSaveState() {
         _state:  c._state,
         _cf:     c._cf,
         _zf:     c._zf,
-        _mem:    (c instanceof RAMComponent) ? Array.from(c._mem.slice(0, 64)) : undefined,
+        _mem:    (c instanceof RAMComponent) ? Array.from(c._mem) : undefined,
         // Electronics extras
         _q:      c._q,
         _bits:   c._bits,

@@ -874,6 +874,296 @@ class OutputDisplayComponent extends BreadboardComponent {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  LED BANK — memory-mapped 8-bit LED array
+//  Mapped at address 0xF4 by default. STA 0xF4 writes A's bits to LEDs.
+//  Each bit drives one LED (bit 0 = leftmost, bit 7 = rightmost).
+// ══════════════════════════════════════════════════════════════════
+class LEDBankComponent extends BreadboardComponent {
+  constructor(x, y) {
+    super('LEDBank', x, y, 'LED BANK');
+    this.w = 220; this.h = 80;
+    this._state       = 0;       // 8 LED bits (current display)
+    this._mappedAddr  = 0xF4;    // I/O address this device responds to
+  }
+  _initPins() {
+    this.pins = [
+      makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR (alongside RAM.ADDR)
+      makePin('DIN',  'in', 8, 'left', 1),  // wire to data bus output
+      makePin('WR',   'in', 1, 'left', 2),  // wire to CU.RI
+      makePin('CLK',  'in', 1, 'left', 3),  // wire to CLOCK.CLK
+    ];
+  }
+  _bodyColor()   { return '#1a0a1a'; }
+  _headerColor() { return '#2a1a2a'; }
+
+  simulate(risingEdge) {
+    if (risingEdge && this.getPin('CLK').value && this.getPin('WR').value) {
+      const addr = this.getPin('ADDR').value & 0xFF;
+      if (addr === this._mappedAddr) {
+        this._state = this.getPin('DIN').value & 0xFF;
+      }
+    }
+  }
+
+  _renderInterior(ctx, cam, sx, sy, sw, sh) {
+    if (cam.scale < 0.4) return;
+    const cy   = sy + sh / 2 + 4 * cam.scale;
+    const ledR = Math.max(6, 9 * cam.scale);
+    const gap  = Math.max(18, 22 * cam.scale);
+    const startX = sx + sw / 2 - (gap * 3.5);
+
+    // Draw 8 LEDs (bit 7 = leftmost in display, bit 0 = rightmost)
+    for (let i = 0; i < 8; i++) {
+      const bit  = (this._state >> (7 - i)) & 1;
+      const cx   = startX + i * gap;
+      // Outer dim ring (always visible)
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.arc(cx, cy, ledR + 1, 0, Math.PI * 2);
+      ctx.fill();
+      // LED itself
+      ctx.fillStyle = bit ? '#ff3030' : '#3a0808';
+      ctx.beginPath();
+      ctx.arc(cx, cy, ledR, 0, Math.PI * 2);
+      ctx.fill();
+      // Glow when on
+      if (bit) {
+        ctx.fillStyle = 'rgba(255, 100, 100, 0.4)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, ledR + 3, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner highlight
+        ctx.fillStyle = '#ffaaaa';
+        ctx.beginPath();
+        ctx.arc(cx - ledR * 0.3, cy - ledR * 0.3, ledR * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Bit labels under each LED (7..0)
+    ctx.font         = `${Math.max(7, 8 * cam.scale)}px monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = '#5a6a7a';
+    for (let i = 0; i < 8; i++) {
+      const cx = startX + i * gap;
+      ctx.fillText((7 - i).toString(), cx, cy + ledR + 3);
+    }
+
+    // Address tag and current value
+    ctx.font      = `${Math.max(8, 10 * cam.scale)}px monospace`;
+    ctx.fillStyle = '#88ddff';
+    ctx.textAlign = 'left';
+    ctx.fillText('@ 0x' + this._mappedAddr.toString(16).toUpperCase(),
+                 sx + 6, sy + sh - 16 * cam.scale);
+    ctx.textAlign = 'right';
+    ctx.fillText('= 0x' + this._state.toString(16).toUpperCase().padStart(2,'0'),
+                 sx + sw - 6, sy + sh - 16 * cam.scale);
+  }
+
+  get description() {
+    return 'LED Bank — a memory-mapped 8-bit output device. Each bit of address 0xF4 drives one of 8 LEDs (bit 7 leftmost, bit 0 rightmost). Write to it with STA 0xF4: the byte in A appears on the LEDs. This is real-CPU style I/O — no new opcode needed, just store to a special address. Wire ADDR to MAR.ADDR (alongside RAM), DIN to the data bus, WR to CU.RI, CLK to the clock.';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  KEYBOARD — memory-mapped input device
+//  Mapped at 0xF1. When user types, the ASCII byte is placed at RAM[0xF1].
+//  LDA 0xF1 reads it. Auto-clears to 0 after read (so polling loops work).
+// ══════════════════════════════════════════════════════════════════
+let _keyboardListenerInstalled = false;
+const _keyboardInstances = new Set();
+
+function _installKeyboardListener() {
+  if (_keyboardListenerInstalled) return;
+  _keyboardListenerInstalled = true;
+  document.addEventListener('keydown', (e) => {
+    // Don't capture when user is typing in a real input field
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (_keyboardInstances.size === 0) return;
+
+    let code = 0;
+    if (e.key.length === 1)         code = e.key.charCodeAt(0);
+    else if (e.key === 'Enter')      code = 13;
+    else if (e.key === 'Backspace')  code = 8;
+    else if (e.key === 'Tab')        code = 9;
+    else if (e.key === 'Escape')     code = 27;
+    else if (e.key === ' ')          code = 32;
+    if (!code) return;
+
+    e.preventDefault();
+    for (const kb of _keyboardInstances) {
+      kb._receiveKey(code);
+    }
+  });
+}
+
+class KeyboardComponent extends BreadboardComponent {
+  constructor(x, y) {
+    super('Keyboard', x, y, 'KEYBOARD');
+    this.w = 220; this.h = 90;
+    this._lastKey    = 0;
+    this._buffer     = [];      // recent keys, for the visual log
+    this._mappedAddr = 0xF1;
+    _installKeyboardListener();
+    _keyboardInstances.add(this);
+  }
+  _initPins() {
+    this.pins = [
+      makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR (for read auto-clear)
+      makePin('RD',   'in', 1, 'left', 1),  // wire to CU.RO (for read auto-clear)
+      makePin('CLK',  'in', 1, 'left', 2),  // wire to CLOCK.CLK
+    ];
+  }
+  _bodyColor()   { return '#0a1a14'; }
+  _headerColor() { return '#1a2a24'; }
+
+  _receiveKey(code) {
+    this._lastKey = code & 0xFF;
+    this._buffer.push(code & 0xFF);
+    if (this._buffer.length > 16) this._buffer.shift();
+    // Push directly into RAM[0xF1] so LDA 0xF1 reads it
+    this._writeToMappedRAM(this._lastKey);
+  }
+
+  _writeToMappedRAM(value) {
+    const BB = window.BB;
+    if (!BB || !BB.components) return;
+    for (const comp of BB.components) {
+      if (comp && comp._mem && comp._mem.length > this._mappedAddr) {
+        comp._mem[this._mappedAddr] = value & 0xFF;
+      }
+    }
+  }
+
+  simulate(risingEdge) {
+    // Auto-clear RAM[0xF1] right after the CPU reads it.
+    // Detect a read: rising clock edge with RD=1 and ADDR=0xF1.
+    if (risingEdge && this.getPin('CLK').value && this.getPin('RD').value) {
+      const addr = this.getPin('ADDR').value & 0xFF;
+      if (addr === this._mappedAddr) {
+        // Defer clear by one tick so the LDA actually grabs the byte first.
+        setTimeout(() => this._writeToMappedRAM(0), 0);
+      }
+    }
+  }
+
+  _renderInterior(ctx, cam, sx, sy, sw, sh) {
+    if (cam.scale < 0.4) return;
+    const cx = sx + sw / 2;
+
+    ctx.font         = `bold ${Math.max(11, 13*cam.scale)}px monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = '#88ffaa';
+    const keyChar = (this._lastKey >= 32 && this._lastKey < 127)
+      ? `'${String.fromCharCode(this._lastKey)}'` : `0x${this._lastKey.toString(16).padStart(2,'0')}`;
+    ctx.fillText(`Last key: ${keyChar} (${this._lastKey})`, cx, sy + 18 * cam.scale);
+
+    // Recent buffer
+    const str = this._buffer
+      .map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '·')
+      .join('');
+    ctx.font      = `${Math.max(9, 11*cam.scale)}px monospace`;
+    ctx.fillStyle = '#66ccff';
+    ctx.fillText(str || '(type to test)', cx, sy + 38 * cam.scale);
+
+    // Address tag
+    ctx.font      = `${Math.max(7, 9*cam.scale)}px monospace`;
+    ctx.fillStyle = '#5a6a7a';
+    ctx.fillText(`@ 0x${this._mappedAddr.toString(16).toUpperCase()} — type anywhere on page`,
+                 cx, sy + sh - 16 * cam.scale);
+  }
+
+  get description() {
+    return 'Keyboard — memory-mapped input at 0xF1. Type any key on the page (not into a text input) and the ASCII byte appears at RAM[0xF1]. LDA 0xF1 reads the key into A, then the byte auto-clears to 0 (so a polling loop sees 0 between keystrokes). Special keys: Enter=13, Backspace=8, Tab=9, Esc=27, Space=32. Wire ADDR to MAR.ADDR and RD to CU.RO so the auto-clear fires on the right cycle, and CLK to CLOCK.CLK.';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  TIMER — 16-bit free-running counter mapped to 0xF2 (low) and 0xF3 (high)
+//  Increments on every clock tick. Any write to 0xF2 resets to 0.
+// ══════════════════════════════════════════════════════════════════
+class TimerComponent extends BreadboardComponent {
+  constructor(x, y) {
+    super('Timer', x, y, 'TIMER');
+    this.w = 200; this.h = 90;
+    this._count       = 0;        // 16-bit counter (0..65535)
+    this._mappedLo    = 0xF2;
+    this._mappedHi    = 0xF3;
+  }
+  _initPins() {
+    this.pins = [
+      makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR
+      makePin('WR',   'in', 1, 'left', 1),  // wire to CU.RI (detect reset)
+      makePin('CLK',  'in', 1, 'left', 2),  // wire to CLOCK.CLK
+    ];
+  }
+  _bodyColor()   { return '#0a141e'; }
+  _headerColor() { return '#1a2438'; }
+
+  _writeToMappedRAM() {
+    const BB = window.BB;
+    if (!BB || !BB.components) return;
+    const lo = this._count & 0xFF;
+    const hi = (this._count >> 8) & 0xFF;
+    for (const comp of BB.components) {
+      if (comp && comp._mem && comp._mem.length > this._mappedHi) {
+        comp._mem[this._mappedLo] = lo;
+        comp._mem[this._mappedHi] = hi;
+      }
+    }
+  }
+
+  simulate(risingEdge) {
+    if (!risingEdge || !this.getPin('CLK').value) return;
+    // Check for reset write before incrementing
+    if (this.getPin('WR').value) {
+      const addr = this.getPin('ADDR').value & 0xFF;
+      if (addr === this._mappedLo) {
+        this._count = 0;
+        this._writeToMappedRAM();
+        return;
+      }
+    }
+    // Otherwise increment
+    this._count = (this._count + 1) & 0xFFFF;
+    this._writeToMappedRAM();
+  }
+
+  _renderInterior(ctx, cam, sx, sy, sw, sh) {
+    if (cam.scale < 0.4) return;
+    const cx = sx + sw / 2;
+
+    // Big counter value
+    ctx.font         = `bold ${Math.max(14, 18*cam.scale)}px monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = '#ffcc66';
+    ctx.fillText(this._count.toString(), cx, sy + 18 * cam.scale);
+
+    // Hex breakdown: high : low
+    const hi = (this._count >> 8) & 0xFF;
+    const lo = this._count & 0xFF;
+    ctx.font      = `${Math.max(8, 10*cam.scale)}px monospace`;
+    ctx.fillStyle = '#7a9b6a';
+    ctx.fillText(`HI=0x${hi.toString(16).toUpperCase().padStart(2,'0')}  LO=0x${lo.toString(16).toUpperCase().padStart(2,'0')}`,
+                 cx, sy + 42 * cam.scale);
+
+    // Address tag
+    ctx.font      = `${Math.max(7, 9*cam.scale)}px monospace`;
+    ctx.fillStyle = '#5a6a7a';
+    ctx.fillText(`@ 0x${this._mappedLo.toString(16).toUpperCase()} (LO) / 0x${this._mappedHi.toString(16).toUpperCase()} (HI)`,
+                 cx, sy + sh - 16 * cam.scale);
+  }
+
+  get description() {
+    return 'Timer — a 16-bit free-running counter that ticks up on every clock cycle. Read the low byte at 0xF2 and the high byte at 0xF3 (LDA 0xF2 / LDA 0xF3). Write any value to 0xF2 to reset the counter to 0 (STA 0xF2). Use it for delays (poll until the count reaches N), animations (do X every M ticks), and timeouts (give up after K ticks). Wire ADDR to MAR.ADDR, WR to CU.RI, CLK to CLOCK.CLK. The high byte changes once every 256 ticks — useful for slow human-visible blinks.';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  CONTROL SIGNAL SWITCH (manual toggle)
 // ══════════════════════════════════════════════════════════════════
 class ControlSwitchComponent extends BreadboardComponent {
@@ -1440,6 +1730,9 @@ function createComponent(type, x, y, opts) {
     case 'AddrBus': return new AddressBusComponent(x, y);
     case 'SP':      return new StackPointerComponent(x, y);
     case 'InputReg':return new InputRegisterComponent(x, y);
+    case 'LEDBank': return new LEDBankComponent(x, y);
+    case 'Keyboard':return new KeyboardComponent(x, y);
+    case 'Timer':   return new TimerComponent(x, y);
     default:        return new RegisterComponent(x, y, type);
   }
 }
@@ -1471,6 +1764,9 @@ const PALETTE_ITEMS = [
   { type: 'RAM',      label: 'RAM 256x8',    desc: '256-byte memory',      pins: 'ADDR/DIN/DOUT/WR/RD' },
   { type: 'InputReg', label: 'Input Reg',    desc: 'External input port (user-settable)', pins: 'VALUE/INO → Q/DIRECT' },
   { type: 'Output',   label: 'Output Disp',  desc: '7-seg style display',  pins: 'DIN/CLK/LOAD' },
+  { type: 'LEDBank',  label: 'LED Bank',     desc: 'Memory-mapped 8 LEDs at 0xF4 — STA 0xF4 lights them', pins: 'ADDR/DIN/WR/CLK' },
+  { type: 'Keyboard', label: 'Keyboard',     desc: 'Memory-mapped input at 0xF1 — LDA 0xF1 reads key. Type anywhere on page.', pins: 'ADDR/RD/CLK' },
+  { type: 'Timer',    label: 'Timer',        desc: '16-bit free-running counter at 0xF2 (low) / 0xF3 (high). Write 0xF2 to reset.', pins: 'ADDR/WR/CLK' },
 ];
 
 // Export
@@ -1488,5 +1784,8 @@ window.ControlSwitchComponent     = ControlSwitchComponent;
 window.ConstantComponent          = ConstantComponent;
 window.ControlUnitComponent       = ControlUnitComponent;
 window.AddressBusComponent        = AddressBusComponent;
+window.LEDBankComponent           = LEDBankComponent;
+window.KeyboardComponent          = KeyboardComponent;
+window.TimerComponent             = TimerComponent;
 window.createComponent            = createComponent;
 window.PALETTE_ITEMS              = PALETTE_ITEMS;
