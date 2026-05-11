@@ -1006,14 +1006,16 @@ class KeyboardComponent extends BreadboardComponent {
     this._lastKey    = 0;
     this._buffer     = [];      // recent keys, for the visual log
     this._mappedAddr = 0xF1;
+    this._irqPending = false;   // true if a key was captured but not yet read
     _installKeyboardListener();
     _keyboardInstances.add(this);
   }
   _initPins() {
     this.pins = [
-      makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR (for read auto-clear)
-      makePin('RD',   'in', 1, 'left', 1),  // wire to CU.RO (for read auto-clear)
-      makePin('CLK',  'in', 1, 'left', 2),  // wire to CLOCK.CLK
+      makePin('ADDR',    'in',  8, 'left',  0),  // wire to MAR.ADDR (for read auto-clear)
+      makePin('RD',      'in',  1, 'left',  1),  // wire to CU.RO (for read auto-clear)
+      makePin('CLK',     'in',  1, 'left',  2),  // wire to CLOCK.CLK
+      makePin('IRQ_OUT', 'out', 1, 'right', 0),  // pulled high when a key is pending → wire to CU.IRQ
     ];
   }
   _bodyColor()   { return '#0a1a14'; }
@@ -1023,6 +1025,7 @@ class KeyboardComponent extends BreadboardComponent {
     this._lastKey = code & 0xFF;
     this._buffer.push(code & 0xFF);
     if (this._buffer.length > 16) this._buffer.shift();
+    this._irqPending = true;     // raise IRQ until CPU reads the key
     // Push directly into RAM[0xF1] so LDA 0xF1 reads it
     this._writeToMappedRAM(this._lastKey);
   }
@@ -1038,11 +1041,15 @@ class KeyboardComponent extends BreadboardComponent {
   }
 
   simulate(risingEdge) {
+    // Drive IRQ_OUT based on pending state (every tick, not just rising edge)
+    this.getPin('IRQ_OUT').value = this._irqPending ? 1 : 0;
+
     // Auto-clear RAM[0xF1] right after the CPU reads it.
     // Detect a read: rising clock edge with RD=1 and ADDR=0xF1.
     if (risingEdge && this.getPin('CLK').value && this.getPin('RD').value) {
       const addr = this.getPin('ADDR').value & 0xFF;
       if (addr === this._mappedAddr) {
+        this._irqPending = false;       // CPU is reading → drop IRQ
         // Defer clear by one tick so the LDA actually grabs the byte first.
         setTimeout(() => this._writeToMappedRAM(0), 0);
       }
@@ -1077,7 +1084,7 @@ class KeyboardComponent extends BreadboardComponent {
   }
 
   get description() {
-    return 'Keyboard — memory-mapped input at 0xF1. Type any key on the page (not into a text input) and the ASCII byte appears at RAM[0xF1]. LDA 0xF1 reads the key into A, then the byte auto-clears to 0 (so a polling loop sees 0 between keystrokes). Special keys: Enter=13, Backspace=8, Tab=9, Esc=27, Space=32. Wire ADDR to MAR.ADDR and RD to CU.RO so the auto-clear fires on the right cycle, and CLK to CLOCK.CLK.';
+    return 'Keyboard — memory-mapped input at 0xF1, with optional interrupt output. Type any key on the page (not into a text input) and the ASCII byte appears at RAM[0xF1]. LDA 0xF1 reads the key into A; the byte auto-clears to 0 after read. Special keys: Enter=13, Backspace=8, Tab=9, Esc=27, Space=32. The IRQ_OUT pin goes HIGH when a key is pending and drops once the CPU reads it — wire IRQ_OUT to CONTROL UNIT.IRQ to enable interrupt-driven keyboard handling. Wire ADDR to MAR.ADDR, RD to CU.RO, CLK to CLOCK.CLK.';
   }
 }
 
@@ -1246,11 +1253,15 @@ class ControlUnitComponent extends BreadboardComponent {
     super('CU', x, y, 'CONTROL UNIT');
     // Extended CU — now has 28 output signals total.  Height is sized
     // for 28 right-side pins at 16px spacing + 12px top padding.
-    this.w = 220; this.h = 470;
+    this.w = 220; this.h = 490;
     this._tState = 0;        // T-state counter (0-4)
     this._lastClk = 0;       // edge detection
     this._halted = false;
     this._powered = false;   // no signals until first clock pulse
+    // Interrupt support
+    this._ie         = 0;      // Interrupt Enable flag (0 at reset; EI sets, DI clears)
+    this._savedPC    = 0;      // saved PC for return from interrupt
+    this._intVector  = 0xFE;   // fixed interrupt handler address
 
     // Microcode table: [opcode][t-state] = control word (bitmask).
     // Bit ordering (now 28 bits):
@@ -1381,10 +1392,11 @@ class ControlUnitComponent extends BreadboardComponent {
     // 0x14 IN        — A ← INPUT reg  (1-byte instruction)
     this._microcode[0x14][2] = INO|AI;
 
-    // 0x15 RTI       — same as RET here (simplified: no flag restore)
-    this._microcode[0x15][2] = SPUP;
-    this._microcode[0x15][3] = SPO|MI;
-    this._microcode[0x15][4] = RO|J;
+    // 0x15 RTI       — Return from Interrupt: restore PC from _savedPC,
+    //                  re-enable IE. The actual PC restore + IE set happens
+    //                  via side-effect in simulate() (T2 of this opcode);
+    //                  microcode is left empty so no signals fire.
+    this._microcode[0x15][2] = 0;
 
     // 0x16 JNZ addr  — If NOT ZF: PC ← addr
     this._microcode[0x16][2] = CO|MI|CE;
@@ -1424,6 +1436,13 @@ class ControlUnitComponent extends BreadboardComponent {
     this._microcode[0x1B][4] = RO|MI;
     this._microcode[0x1B][5] = AO|RI;
 
+    // 0x1C EI        — Enable Interrupts (set IE flag to 1).  No bus traffic.
+    //                  Side-effect handled in simulate() at T2.
+    this._microcode[0x1C][2] = 0;
+
+    // 0x1D DI        — Disable Interrupts (clear IE flag).  Side-effect at T2.
+    this._microcode[0x1D][2] = 0;
+
     // Store bit constants for simulate
     this._SIG = {
       CO,CE,MI,RO,RI,II,IO,AI,AO,BI,EO,SU,OI,FI,HLT,J,
@@ -1440,6 +1459,7 @@ class ControlUnitComponent extends BreadboardComponent {
       makePin('CF',     'in',  1, 'left', 2),   // Carry flag
       makePin('ZF',     'in',  1, 'left', 3),   // Zero flag
       makePin('RST',    'in',  1, 'left', 4),   // Reset
+      makePin('IRQ',    'in',  1, 'left', 5),   // Interrupt Request from peripheral(s)
 
       // Outputs — control signals (right side, top to bottom).
       // Slot order matches the bit positions in the microcode word, so
@@ -1489,6 +1509,7 @@ class ControlUnitComponent extends BreadboardComponent {
     if (this.getPin('RST').value) {
       this._tState = 0;
       this._halted = false;
+      this._ie     = 0;          // interrupts off at reset
     }
 
     // Only advance on risingEdge (called from step 3 of bbPropagate)
@@ -1499,6 +1520,18 @@ class ControlUnitComponent extends BreadboardComponent {
         this._tState = 0;  // start at T0
       } else if (!this._halted) {
         this._tState = (this._tState + 1) % this._tStateCount;
+      }
+
+      // ── Interrupt entry ─────────────────────────────────────────────
+      // Check at the start of a new instruction (T-state just wrapped to 0).
+      // If IRQ is high and IE is set, save PC and redirect to handler @ 0xFE.
+      if (this._tState === 0 && this.getPin('IRQ').value && this._ie) {
+        const pc = this._findPC();
+        if (pc) {
+          this._savedPC = pc._count & 0xFF;
+          pc._count     = this._intVector;    // 0xFE
+          this._ie      = 0;                  // disable further IRQs until RTI
+        }
       }
     }
 
@@ -1538,10 +1571,32 @@ class ControlUnitComponent extends BreadboardComponent {
     // HLT
     if (word & S.HLT) this._halted = true;
 
+    // ── Side-effect opcodes for interrupts ──────────────────────────
+    // These fire their effect once at T2 of each instance (then T-state
+    // advances and the rest of T-states are NOPs that do nothing).
+    if (this._tState === 2 && risingEdge) {
+      if (opcode === 0x1C) this._ie = 1;          // EI
+      if (opcode === 0x1D) this._ie = 0;          // DI
+      if (opcode === 0x15) {                       // RTI
+        const pc = this._findPC();
+        if (pc) pc._count = this._savedPC & 0xFF;
+        this._ie = 1;
+      }
+    }
+
     // Output all signals — bit i of `word` drives ALL_SIGS[i]
     for (let i = 0; i < ALL_SIGS.length; i++) {
       this.getPin(ALL_SIGS[i]).value = (word >> i) & 1;
     }
+  }
+
+  _findPC() {
+    const BB = window.BB;
+    if (!BB || !BB.components) return null;
+    for (const c of BB.components) {
+      if (c && c.type === 'PC') return c;
+    }
+    return null;
   }
 
   _renderInterior(ctx, cam, sx, sy, sw, sh) {
@@ -1765,7 +1820,7 @@ const PALETTE_ITEMS = [
   { type: 'InputReg', label: 'Input Reg',    desc: 'External input port (user-settable)', pins: 'VALUE/INO → Q/DIRECT' },
   { type: 'Output',   label: 'Output Disp',  desc: '7-seg style display',  pins: 'DIN/CLK/LOAD' },
   { type: 'LEDBank',  label: 'LED Bank',     desc: 'Memory-mapped 8 LEDs at 0xF4 — STA 0xF4 lights them', pins: 'ADDR/DIN/WR/CLK' },
-  { type: 'Keyboard', label: 'Keyboard',     desc: 'Memory-mapped input at 0xF1 — LDA 0xF1 reads key. Type anywhere on page.', pins: 'ADDR/RD/CLK' },
+  { type: 'Keyboard', label: 'Keyboard',     desc: 'Memory-mapped input at 0xF1 + IRQ_OUT for interrupts — LDA 0xF1 reads key.', pins: 'ADDR/RD/CLK/IRQ_OUT' },
   { type: 'Timer',    label: 'Timer',        desc: '16-bit free-running counter at 0xF2 (low) / 0xF3 (high). Write 0xF2 to reset.', pins: 'ADDR/WR/CLK' },
 ];
 
