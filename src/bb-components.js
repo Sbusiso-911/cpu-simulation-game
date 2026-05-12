@@ -1103,8 +1103,9 @@ class TimerComponent extends BreadboardComponent {
   _initPins() {
     this.pins = [
       makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR
-      makePin('WR',   'in', 1, 'left', 1),  // wire to CU.RI (detect reset)
-      makePin('CLK',  'in', 1, 'left', 2),  // wire to CLOCK.CLK
+      makePin('DIN',  'in', 8, 'left', 1),  // wire to DATA BUS (load starting value)
+      makePin('WR',   'in', 1, 'left', 2),  // wire to CU.RI (detect load)
+      makePin('CLK',  'in', 1, 'left', 3),  // wire to CLOCK.CLK
     ];
   }
   _bodyColor()   { return '#0a141e'; }
@@ -1125,11 +1126,18 @@ class TimerComponent extends BreadboardComponent {
 
   simulate(risingEdge) {
     if (!risingEdge || !this.getPin('CLK').value) return;
-    // Check for reset write before incrementing
+    // Check for load write before incrementing
     if (this.getPin('WR').value) {
       const addr = this.getPin('ADDR').value & 0xFF;
       if (addr === this._mappedLo) {
-        this._count = 0;
+        // Load starting value from data bus (lo byte; hi cleared)
+        this._count = this.getPin('DIN').value & 0xFF;
+        this._writeToMappedRAM();
+        return;
+      }
+      if (addr === this._mappedHi) {
+        // Load hi byte; lo preserved
+        this._count = ((this.getPin('DIN').value & 0xFF) << 8) | (this._count & 0xFF);
         this._writeToMappedRAM();
         return;
       }
@@ -1166,7 +1174,7 @@ class TimerComponent extends BreadboardComponent {
   }
 
   get description() {
-    return 'Timer — a 16-bit free-running counter that ticks up on every clock cycle. Read the low byte at 0xF2 and the high byte at 0xF3 (LDA 0xF2 / LDA 0xF3). Write any value to 0xF2 to reset the counter to 0 (STA 0xF2). Use it for delays (poll until the count reaches N), animations (do X every M ticks), and timeouts (give up after K ticks). Wire ADDR to MAR.ADDR, WR to CU.RI, CLK to CLOCK.CLK. The high byte changes once every 256 ticks — useful for slow human-visible blinks.';
+    return 'Timer — a 16-bit free-running counter that ticks up on every clock cycle. Read the low byte at 0xF2 and the high byte at 0xF3 (LDA 0xF2 / LDA 0xF3). Write a value to 0xF2 to load the LOW byte (HI cleared); write to 0xF3 to load the HIGH byte (LO preserved). So STA 0xF2 with A=0 resets to 0, while A=200 starts the count at 200. Wire ADDR to MAR.ADDR, DIN to DATA BUS, WR to CU.RI, CLK to CLOCK.CLK. Use it for delays (poll until count reaches N), animations (do X every M ticks), and timeouts (give up after K ticks).';
   }
 }
 
