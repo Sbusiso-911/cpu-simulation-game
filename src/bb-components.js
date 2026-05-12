@@ -1097,15 +1097,19 @@ class TimerComponent extends BreadboardComponent {
     super('Timer', x, y, 'TIMER');
     this.w = 200; this.h = 90;
     this._count       = 0;        // 16-bit counter (0..65535)
+    this._compare     = 0;        // 8-bit compare register
+    this._irqPending  = false;    // true while IRQ is asserted
     this._mappedLo    = 0xF2;
     this._mappedHi    = 0xF3;
+    this._mappedCmp   = 0xF5;
   }
   _initPins() {
     this.pins = [
-      makePin('ADDR', 'in', 8, 'left', 0),  // wire to MAR.ADDR
-      makePin('DIN',  'in', 8, 'left', 1),  // wire to DATA BUS (load starting value)
-      makePin('WR',   'in', 1, 'left', 2),  // wire to CU.RI (detect load)
-      makePin('CLK',  'in', 1, 'left', 3),  // wire to CLOCK.CLK
+      makePin('ADDR',    'in',  8, 'left',  0),  // wire to MAR.ADDR
+      makePin('DIN',     'in',  8, 'left',  1),  // wire to DATA BUS (load starting value / compare)
+      makePin('WR',      'in',  1, 'left',  2),  // wire to CU.RI (detect load)
+      makePin('CLK',     'in',  1, 'left',  3),  // wire to CLOCK.CLK
+      makePin('IRQ_OUT', 'out', 1, 'right', 0),  // wire to CU.IRQ (fires on count.lo == compare)
     ];
   }
   _bodyColor()   { return '#0a141e'; }
@@ -1117,14 +1121,18 @@ class TimerComponent extends BreadboardComponent {
     const lo = this._count & 0xFF;
     const hi = (this._count >> 8) & 0xFF;
     for (const comp of BB.components) {
-      if (comp && comp._mem && comp._mem.length > this._mappedHi) {
-        comp._mem[this._mappedLo] = lo;
-        comp._mem[this._mappedHi] = hi;
+      if (comp && comp._mem && comp._mem.length > this._mappedCmp) {
+        comp._mem[this._mappedLo]  = lo;
+        comp._mem[this._mappedHi]  = hi;
+        comp._mem[this._mappedCmp] = this._compare & 0xFF;
       }
     }
   }
 
   simulate(risingEdge) {
+    // Drive IRQ_OUT every step so the CU sees it
+    this.getPin('IRQ_OUT').value = this._irqPending ? 1 : 0;
+
     if (!risingEdge || !this.getPin('CLK').value) return;
     // Check for load write before incrementing
     if (this.getPin('WR').value) {
@@ -1132,18 +1140,30 @@ class TimerComponent extends BreadboardComponent {
       if (addr === this._mappedLo) {
         // Load starting value from data bus (lo byte; hi cleared)
         this._count = this.getPin('DIN').value & 0xFF;
+        this._irqPending = false;
         this._writeToMappedRAM();
         return;
       }
       if (addr === this._mappedHi) {
         // Load hi byte; lo preserved
         this._count = ((this.getPin('DIN').value & 0xFF) << 8) | (this._count & 0xFF);
+        this._irqPending = false;
+        this._writeToMappedRAM();
+        return;
+      }
+      if (addr === this._mappedCmp) {
+        // Set compare register; clears IRQ (acts as ack + re-arm)
+        this._compare = this.getPin('DIN').value & 0xFF;
+        this._irqPending = false;
         this._writeToMappedRAM();
         return;
       }
     }
-    // Otherwise increment
+    // Otherwise increment, then check compare
     this._count = (this._count + 1) & 0xFFFF;
+    if ((this._count & 0xFF) === this._compare) {
+      this._irqPending = true;
+    }
     this._writeToMappedRAM();
   }
 
@@ -1166,15 +1186,20 @@ class TimerComponent extends BreadboardComponent {
     ctx.fillText(`HI=0x${hi.toString(16).toUpperCase().padStart(2,'0')}  LO=0x${lo.toString(16).toUpperCase().padStart(2,'0')}`,
                  cx, sy + 42 * cam.scale);
 
+    // Compare register + IRQ indicator
+    ctx.font      = `${Math.max(8, 10*cam.scale)}px monospace`;
+    ctx.fillStyle = this._irqPending ? '#ff4040' : '#7a9b6a';
+    ctx.fillText(`CMP=0x${(this._compare & 0xFF).toString(16).toUpperCase().padStart(2,'0')}  ${this._irqPending ? 'IRQ!' : 'irq.'}`,
+                 cx, sy + 58 * cam.scale);
+
     // Address tag
     ctx.font      = `${Math.max(7, 9*cam.scale)}px monospace`;
     ctx.fillStyle = '#5a6a7a';
-    ctx.fillText(`@ 0x${this._mappedLo.toString(16).toUpperCase()} (LO) / 0x${this._mappedHi.toString(16).toUpperCase()} (HI)`,
-                 cx, sy + sh - 16 * cam.scale);
+    ctx.fillText(`@ F2(LO) F3(HI) F5(CMP)`, cx, sy + sh - 16 * cam.scale);
   }
 
   get description() {
-    return 'Timer — a 16-bit free-running counter that ticks up on every clock cycle. Read the low byte at 0xF2 and the high byte at 0xF3 (LDA 0xF2 / LDA 0xF3). Write a value to 0xF2 to load the LOW byte (HI cleared); write to 0xF3 to load the HIGH byte (LO preserved). So STA 0xF2 with A=0 resets to 0, while A=200 starts the count at 200. Wire ADDR to MAR.ADDR, DIN to DATA BUS, WR to CU.RI, CLK to CLOCK.CLK. Use it for delays (poll until count reaches N), animations (do X every M ticks), and timeouts (give up after K ticks).';
+    return 'Timer — a 16-bit free-running counter that ticks on every clock cycle, with a compare register at 0xF5 that fires an interrupt when count.lo matches. Reads: LDA 0xF2 (lo), LDA 0xF3 (hi), LDA 0xF5 (compare). Writes: STA 0xF2 loads count.lo (hi cleared); STA 0xF3 loads count.hi (lo preserved); STA 0xF5 sets compare AND clears any pending IRQ (so handlers ack by re-writing F5). Compare = 0 by default, so timer interrupts every 256 ticks at the wrap. IRQ_OUT pin asserts while an interrupt is pending. Wire ADDR→MAR.ADDR, DIN→DATA BUS, WR→CU.RI, CLK→CLOCK.CLK, IRQ_OUT→CU.IRQ (can share wire with Keyboard.IRQ_OUT).';
   }
 }
 
